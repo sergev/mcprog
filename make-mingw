@@ -1,0 +1,15 @@
+CC		= i586-mingw32msvc-gcc
+CFLAGS		= -Wall -g -O -DMINGW32
+LDFLAGS		= -s
+OBJS		= multicore.o
+
+all:		flashid.exe mcprog.exe
+
+mcprog.exe:	$(OBJS) mcprog.o
+		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS)
+
+flashid.exe:	flashid.o $(OBJS)
+		$(CC) $(LDFLAGS) -o $@ flashid.o $(OBJS)
+
+clean:
+		rm -f *~ *.o *.exe
