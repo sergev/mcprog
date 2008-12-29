@@ -1,7 +1,19 @@
 /*
- * Flash programmer for Elvees Multicore microcontrollers.
+ * Программатор flash-памяти для микроконтроллеров Элвис Мультикор.
  *
- * By Sergey Vakulenko, <vak@cronyx.ru>.
+ * Разработано в ИТМиВТ, 2008.
+ * Автор: С.Вакуленко.
+ *
+ * Этот файл распространяется в надежде, что он окажется полезным, но
+ * БЕЗ КАКИХ БЫ ТО НИ БЫЛО ГАРАНТИЙНЫХ ОБЯЗАТЕЛЬСТВ; в том числе без косвенных
+ * гарантийных обязательств, связанных с ПОТРЕБИТЕЛЬСКИМИ СВОЙСТВАМИ и
+ * ПРИГОДНОСТЬЮ ДЛЯ ОПРЕДЕЛЕННЫХ ЦЕЛЕЙ.
+ *
+ * Вы вправе распространять и/или изменять этот файл в соответствии
+ * с условиями Генеральной Общественной Лицензии GNU (GPL) в том виде,
+ * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
+ * либо (по вашему желанию) любой более поздней версии. Подробности
+ * смотрите в прилагаемом файле 'COPYING.txt'.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,10 +105,6 @@ int read_srec (char *filename, unsigned char *output)
 		if (buf[0] == '\n')
 			continue;
 		if (buf[0] != 'S') {
-			if (output_len == 0) {
-				fclose (fd);
-				return 0;
-			}
 			fprintf (stderr, "%s: bad file format\n", filename);
 			exit (1);
 		}
@@ -237,7 +245,7 @@ int main (int argc, char **argv)
 {
 	char *inname1;
 	unsigned long addr;
-	int ch;
+	int ch, probe = 0;
 	extern int optind;
 	void *t0;
 
@@ -245,39 +253,44 @@ int main (int argc, char **argv)
 	setvbuf (stderr, (char *)NULL, _IOLBF, 0);
 	printf (PROGNAME ", Version " VERSION ", Copyright (C) 2008 IPMCE\n");
 
-	while ((ch = getopt(argc, argv, "vDb:")) != -1) {
+	while ((ch = getopt(argc, argv, "vDp")) != -1) {
 		switch (ch) {
 		case 'v':
 			program = 0;
 			continue;
-		case 'b':
-			flash_base = strtoul (optarg, 0, 0);
-			continue;
 		case 'D':
 			++debug;
 			continue;
+		case 'p':
+			++probe;
+			continue;
 		}
 usage:		printf ("\nUsage:\n");
-		printf ("        mcprog [-v] [-D] [-b addr] filename\n");
+		printf ("        mcprog [-v] file.sre\n");
+		printf ("        mcprog [-v] file.bin address\n");
+		printf ("        mcprog -p\n");
 		printf ("Args:\n");
-		printf ("        filename   Code file in binary or SREC format\n");
-		printf ("        -b addr    Base address of flash memory\n");
+		printf ("        file.sre   Code file SREC format\n");
+		printf ("        file.bin   Code file in binary format\n");
+		printf ("        address    Base address of flash memory\n");
+		printf ("        -p         Probe device\n");
 		printf ("        -v         Verify only\n");
 		printf ("        -D         Print debugging information\n");
 		exit (0);
 	}
 	argc -= optind;
 	argv += optind;
-	if (argc != 1)
+	if (argc < 1 || argc > 2)
 		goto usage;
 
 	multicore_init ();
 	inname1 = argv[0];
-
-	flash_len = read_srec (inname1, flash_data);
-	if (flash_len == 0)
+	if (argc == 1) {
+		flash_len = read_srec (inname1, flash_data);
+	} else {
+		flash_base = strtoul (argv[1], 0, 0);
 		flash_len = read_bin (inname1, flash_data);
-
+	}
 	printf ("Memory: %#lx-%#lx, total %ld bytes\n", flash_base,
 		flash_base + flash_len, flash_len);
 

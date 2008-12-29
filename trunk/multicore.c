@@ -1,6 +1,18 @@
 /*
  * Интерфейс через адаптер LPT-JTAG к процессору Элвис Мультикор.
- * Copyright (C) 2006-2008 ИТМиВТ.
+ * Разработано в ИТМиВТ, 2006-2008.
+ * Авторы: А.Ступаченко, С.Вакуленко.
+ *
+ * Этот файл распространяется в надежде, что он окажется полезным, но
+ * БЕЗ КАКИХ БЫ ТО НИ БЫЛО ГАРАНТИЙНЫХ ОБЯЗАТЕЛЬСТВ; в том числе без косвенных
+ * гарантийных обязательств, связанных с ПОТРЕБИТЕЛЬСКИМИ СВОЙСТВАМИ и
+ * ПРИГОДНОСТЬЮ ДЛЯ ОПРЕДЕЛЕННЫХ ЦЕЛЕЙ.
+ *
+ * Вы вправе распространять и/или изменять этот файл в соответствии
+ * с условиями Генеральной Общественной Лицензии GNU (GPL) в том виде,
+ * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
+ * либо (по вашему желанию) любой более поздней версии. Подробности
+ * смотрите в прилагаемом файле 'COPYING.txt'.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -248,7 +260,7 @@ static int ensure_lpt_service_running()
 				return -1;
 			case ERROR_SERVICE_DOES_NOT_EXIST:
 				if (install_lpt_service() != 0) {
-					fprintf(stderr, "ERROR: failed to start the giveio.sys driver service...\n");
+					fprintf(stderr, "Failed to start GiveIO.SYS driver.\n");
 					return -1;
 				}
 			}
@@ -275,7 +287,7 @@ static int is_winnt()
 /*
  * Run virtual device for access some ports (LPT).
  */
-static int get_winnt_lpt_access()
+static void get_winnt_lpt_access()
 {
 	HANDLE h;
 
@@ -283,11 +295,10 @@ static int get_winnt_lpt_access()
 	h = CreateFile ("\\\\.\\giveio", GENERIC_READ, 0, NULL,
 		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (h == INVALID_HANDLE_VALUE) {
-		fprintf (stderr, "Couldn`t access GiveIO device for WIN32_NT\n");
-		return -1;
+		fprintf (stderr, "Failed to open GiveIO.SYS device.\n");
+		exit (1);
 	}
 	CloseHandle (h);
-	return 0;
 }
 
 void jtag_usleep (unsigned long usec)
@@ -740,10 +751,8 @@ void multicore_init ()
 {
 	/* Set IDT to allow access to EPP port */
 #if defined (__CYGWIN32__) || defined (MINGW32)
-	if (is_winnt() && get_winnt_lpt_access() != 0) {
-		fprintf (stderr, "FATAL: failed to get the direct parport access...\n");
-		exit (1);
-	}
+	if (is_winnt ())
+		get_winnt_lpt_access ();
 #else
 	/* Unfortunately we can permit access only to all ports, because
 	 * we need access to ECP_ECR port and it beyond of 1024 bits. */
