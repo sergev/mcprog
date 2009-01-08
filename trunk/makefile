@@ -2,7 +2,7 @@ CC		= gcc
 CFLAGS		= -Wall -g -O
 OBJS		= multicore.o
 
-all:		flashid mcprog
+all:		mcprog
 
 mcprog:		$(OBJS) mcprog.o
 		$(CC) -o mcprog mcprog.o $(OBJS)
@@ -10,11 +10,8 @@ mcprog:		$(OBJS) mcprog.o
 jtag/jtag.a:
 		$(MAKE) -C jtag all
 
-flashid:	flashid.o $(OBJS)
-		$(CC) -o flashid flashid.o $(OBJS)
-
 clean:
-		rm -f *~ *.o core flashid mcprog
+		rm -f *~ *.o core mcprog
 
 install:	mcprog
 		install -c -s -oroot -m4755 mcprog /usr/local/bin/mcprog

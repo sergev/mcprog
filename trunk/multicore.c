@@ -19,13 +19,18 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "multicore.h"
 
 struct _multicore_t {
 	char		*cpu_name;
 	unsigned 	idcode;
-	unsigned 	flash_id, mfr_id;
+	unsigned	flash_width;
+	unsigned	flash_bytes;
+	unsigned	flash_addr_5555;
+	unsigned	flash_addr_2aaa;
+	unsigned	flash_devid_offset;
 };
 
 /* Идентификатор производителя flash. */
@@ -39,8 +44,10 @@ struct _multicore_t {
 #define ID_39VF800_A		0x27812781
 
 /* Команды flash. */
-#define FLASH_ADDR_5555		(0x5555 << 2)
-#define FLASH_ADDR_2AAA		(0x2AAA << 2)
+#define FLASH_ADDR32_5555	(0x5555 << 2)
+#define FLASH_ADDR32_2AAA	(0x2AAA << 2)
+#define FLASH_ADDR64_5555	(0x5555 << 3)
+#define FLASH_ADDR64_2AAA	(0x2AAA << 3)
 #define FLASH_CMD_AA		0x00AA00AA
 #define FLASH_CMD_55		0x00550055
 #define FLASH_CMD_10		0x00100010
@@ -555,7 +562,8 @@ void jtag_start (void)
 		outb (status, SPP_STATUS);
 	}
 	if (! (status & SPP_STATUS_BUSY)) {
-		fprintf (stderr, "SPP BUSY high after EPP port reset\n");
+		/* SPP BUSY high after EPP port reset */
+		fprintf (stderr, "\nNo device detected.\nCheck power!\n");
 		exit (1);
 	}
 	putcmd (MCIF_START);
@@ -696,54 +704,6 @@ unsigned jtag_read_word (unsigned phys_addr)
 	return jtag_read_next (phys_addr);
 }
 
-static int flash_detected (multicore_t *mc, unsigned base)
-{
-	int error_count = 0;
-
-	/* Read device code.
-	 * Must be 29LV800B or 29LV800T. */
-	for (error_count=0; ; ++error_count) {
-		if (error_count > 10) {
-			printf ("Bad flash id = %08x, must be %08x, %08x or %08x\n",
-				mc->flash_id, ID_29LV800_B, ID_29LV800_T,
-				ID_39VF800_A);
-			return 0;
-		}
-		jtag_write_word (FLASH_CMD_AA, base + FLASH_ADDR_5555);
-		jtag_write_word (FLASH_CMD_55, base + FLASH_ADDR_2AAA);
-		jtag_write_word (FLASH_CMD_90, base + FLASH_ADDR_5555);
-		mc->flash_id = jtag_read_word (base + 4);
-		/* if (debug > 1)
-			fprintf (stderr, "flash id %08x\n", mc->flash_id); */
-
-		if (mc->flash_id == ID_29LV800_B || mc->flash_id == ID_29LV800_T ||
-		    mc->flash_id == ID_39VF800_A)
-			break;
-	}
-
-	/* Read MFR code. */
-	mc->mfr_id = jtag_read_word (base);
-
-	/* Stop read ID mode. */
-	jtag_write_word (FLASH_CMD_F0, base);
-	return 1;
-}
-
-static int multicore_check_idcode (multicore_t *mc)
-{
-	switch (mc->idcode) {
-	default:
-		return 0;
-	case MC12_ID:
-		mc->cpu_name = "MC12";
-		break;
-	case MC12REV1_ID:
-		mc->cpu_name = "MC12r1";
-		break;
-	}
-	return 1;
-}
-
 /*
  * Установка доступа к аппаратным портам ввода-вывода.
  */
@@ -758,7 +718,10 @@ void multicore_init ()
 	 * we need access to ECP_ECR port and it beyond of 1024 bits. */
 #if defined (__linux__)
 	if (iopl(3) == -1) {
-		perror ("iopl");
+		if (errno == EPERM)
+			fprintf (stderr, "This program must be run with superuser privileges.\n");
+		else
+			perror ("iopl");
 		exit (1);
 	}
 #endif
@@ -776,7 +739,6 @@ void multicore_init ()
 	setuid (getuid());
 #endif
 }
-
 
 /*
  * Open the device.
@@ -798,7 +760,8 @@ multicore_t *multicore_open ()
 	mc->idcode = jtag_get_idcode();
 	/* if (debug > 1)
 		fprintf (stderr, "idcode %08x\n", mc->idcode); */
-	if (! multicore_check_idcode (mc)) {
+	switch (mc->idcode) {
+	default:
 		/* Device not detected. */
 		if (mc->idcode == 0xffffffff || mc->idcode == 0)
 			fprintf (stderr, "No response from device -- check power is on!\n");
@@ -806,6 +769,12 @@ multicore_t *multicore_open ()
 			fprintf (stderr, "No response from device -- unknown idcode 0x%08x!\n",
 				mc->idcode);
 		exit (1);
+	case MC12_ID:
+		mc->cpu_name = "MC12";
+		break;
+	case MC12REV1_ID:
+		mc->cpu_name = "MC12r1";
+		break;
 	}
 	jtag_reset ();
 
@@ -818,11 +787,7 @@ multicore_t *multicore_open ()
         /* CSCON1: 5 wait states, address 02000000, 64 bits. */
 	jtag_write_word (0x009502FE, 0x182F1004);
 
-	if (flash_detected (mc, 0x1FC00000))
-		return mc;
-
-	free (mc);
-	return 0;
+	return mc;
 }
 
 /*
@@ -868,36 +833,6 @@ unsigned multicore_idcode (multicore_t *mc)
 	return mc->idcode;
 }
 
-void multicore_flash_id (multicore_t *mc, unsigned *mf, unsigned *dev)
-{
-	*mf = mc->mfr_id;
-	*dev = mc->flash_id;
-}
-
-char *multicore_flash_name (multicore_t *mc)
-{
-	static char name [80];
-
-	strcpy (name, "");
-	if (mc->mfr_id == ID_ALLIANCE)
-		strcat (name, "Alliance ");
-	else if (mc->mfr_id == ID_AMD)
-		strcat (name, "AMD ");
-	else if (mc->mfr_id == ID_SST)
-		strcat (name, "SST ");
-
-	if (mc->flash_id == ID_29LV800_B)
-		strcat (name, "29LV800B");
-	else if (mc->flash_id == ID_29LV800_T)
-		strcat (name, "29LV800T");
-	else if (mc->flash_id == ID_39VF800_A)
-		strcat (name, "39VF800A");
-	else
-		strcat (name, "Unknown");
-
-	return name;
-}
-
 /*
  * Вычисление базового адреса микросхемы flash-памяти.
  * На вычислителе ИТМиВТ имеем три банка:
@@ -923,19 +858,84 @@ static unsigned long compute_base (unsigned long addr)
 	return 0;
 }
 
+int multicore_flash_detect (multicore_t *mc, unsigned addr,
+	unsigned *mf, unsigned *dev, char *mfname, char *devname,
+	unsigned *bytes, unsigned *width)
+{
+	int count;
+	unsigned long base;
+
+	base = compute_base (addr);
+	for (count=0; count<10; ++count) {
+		/* Try both 32 and 64 bus width.*/
+		if (count & 1) {
+			mc->flash_width = 64;
+			mc->flash_addr_5555 = FLASH_ADDR64_5555;
+			mc->flash_addr_2aaa = FLASH_ADDR64_2AAA;
+			mc->flash_devid_offset = 8;
+		} else {
+			mc->flash_width = 32;
+			mc->flash_addr_5555 = FLASH_ADDR32_5555;
+			mc->flash_addr_2aaa = FLASH_ADDR32_2AAA;
+			mc->flash_devid_offset = 4;
+		}
+		/* Read device code. */
+		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
+		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
+		jtag_write_word (FLASH_CMD_90, base + mc->flash_addr_5555);
+		*dev = jtag_read_word (base + mc->flash_devid_offset);
+		/* if (debug > 1)
+			fprintf (stderr, "flash id %08x\n", *dev); */
+		switch (*dev) {
+		case ID_29LV800_B:
+			strcpy (devname, "29LV800B");
+			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
+			goto success;
+		case ID_29LV800_T:
+			strcpy (devname, "29LV800T");
+			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
+			goto success;
+		case ID_39VF800_A:
+			strcpy (devname, "39VF800A");
+			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
+			goto success;
+		}
+	}
+	/*printf ("Bad flash id = %08x, must be %08x, %08x or %08x\n",
+		*dev, ID_29LV800_B, ID_29LV800_T, ID_39VF800_A);*/
+	return 0;
+
+success:
+	/* Read MFR code. */
+	*mf = jtag_read_word (base);
+	switch (*mf) {
+	case ID_ALLIANCE: strcpy (mfname, "Alliance");	   break;
+	case ID_AMD:	  strcpy (mfname, "AMD");	   break;
+	case ID_SST:	  strcpy (mfname, "SST");	   break;
+	default:	  sprintf (mfname, "<%08x>", *mf); break;
+	}
+
+	/* Stop read ID mode. */
+	jtag_write_word (FLASH_CMD_F0, base);
+
+	*bytes = mc->flash_bytes;
+	*width = mc->flash_width;
+	return 1;
+}
+
 int multicore_erase (multicore_t *mc, unsigned long addr)
 {
 	unsigned long word, base;
 
 	/* Chip erase. */
 	base = compute_base (addr);
-	printf ("Erase %#lx...", base);
-	jtag_write_word (FLASH_CMD_AA, base + FLASH_ADDR_5555);
-	jtag_write_word (FLASH_CMD_55, base + FLASH_ADDR_2AAA);
-	jtag_write_word (FLASH_CMD_80, base + FLASH_ADDR_5555);
-	jtag_write_word (FLASH_CMD_AA, base + FLASH_ADDR_5555);
-	jtag_write_word (FLASH_CMD_55, base + FLASH_ADDR_2AAA);
-	jtag_write_word (FLASH_CMD_10, base + FLASH_ADDR_5555);
+	printf ("Erase: %08lx", base);
+	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
+	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
+	jtag_write_word (FLASH_CMD_80, base + mc->flash_addr_5555);
+	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
+	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
+	jtag_write_word (FLASH_CMD_10, base + mc->flash_addr_5555);
 	for (;;) {
 		fflush (stdout);
 		jtag_usleep (250000);
@@ -944,8 +944,8 @@ int multicore_erase (multicore_t *mc, unsigned long addr)
 			break;
 		printf (".");
 	}
-	jtag_usleep (200000);
-	printf (" done.\n");
+	jtag_usleep (250000);
+	printf (" done\n");
 	return 1;
 }
 
@@ -954,12 +954,10 @@ void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long wo
 	unsigned long base;
 
 	base = compute_base (addr);
-/*fprintf (stderr, "Loading to address: %#lx, base %#lx\n", addr, base);*/
-	jtag_write_word (FLASH_CMD_AA, base + FLASH_ADDR_5555);
-	jtag_write_next (FLASH_CMD_55, base + FLASH_ADDR_2AAA);
-	jtag_write_next (FLASH_CMD_A0, base + FLASH_ADDR_5555);
+	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
+	jtag_write_next (FLASH_CMD_55, base + mc->flash_addr_2aaa);
+	jtag_write_next (FLASH_CMD_A0, base + mc->flash_addr_5555);
 	jtag_write_next (word, addr);
-
 	/* TODO: запись в 64-битную flash-память пока не реализована. */
 }
 
