@@ -1,0 +1,40 @@
+#summary MCPROG home page (Russian).
+
+= Утилита MCPROG =
+Утилита MCPROG предназначена для записи программного обеспечения в Flash-память микроконтроллеров [http://multicore.ru/index.php?id=27 Элвис Мультикор].
+В качестве программатора используется адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера.
+Поддерживаются чипы Flash-памяти AMD/Alliance 29LV800 и SST 39VF800.
+
+Вызов:
+{{{
+mcprog [-v] file.srec
+mcprog [-v] file.bin [address]
+}}}
+
+Параметры:
+  * -v - без записи, только проверка памяти на совпадение
+  * file.srec - файл с прошивкой в [http://en.wikipedia.org/wiki/SREC_(file_format) формате SREC]
+  * file.bin - бинарный файл с прошивкой
+  * address - адрес flash-памяти, по умолчанию 0xBFC00000
+
+Входной файл должен иметь простой бинарный формат, или [http://en.wikipedia.org/wiki/SREC_(file_format) SREC]. Формат SREC предпочтительнее, так как в нём имеется информация об адресах программы. Преобразовать формат ELF или COFF или A.OUT в SREC можно командой objcopy, например:
+{{{
+objcopy -O srec firmware.elf firmware.srec
+}}}
+
+При вызове без параметров утилита MCPROG определяет тип процессора и flash-памяти, установленных на плате. Например:
+{{{
+Processor: MC12 (id 20777001)
+Flash at 1FC00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
+Flash at 1FA00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
+Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
+}}}
+
+= Скачать =
+Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2008-12-01.zip здесь]. Потребуется установить драйвер GIVEIO,
+позволяющий прямой доступ к параллельному порту:
+ # Кладём giveio.sys в C:\WINDOWS\system32\drivers\
+ # Запускаем install.reg
+ # Перезагружаемся
+
+Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2008-12-01.tgz здесь].
