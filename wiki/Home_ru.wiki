@@ -38,3 +38,9 @@ Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
  # Перезагружаемся
 
 Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2008-12-01.tgz здесь].
+
+= Исходные тексты =
+Исходные тексты распространяются на условиях лицензии GPL. Их можно скачать через SVN командой:
+{{{
+svn checkout http://mcprog.googlecode.com/svn/trunk/ mcprog
+}}}
