@@ -936,6 +936,15 @@ int multicore_erase (multicore_t *mc, unsigned long addr)
 	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
 	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
 	jtag_write_word (FLASH_CMD_10, base + mc->flash_addr_5555);
+	if (mc->flash_width == 64) {
+		/* Старшая половина 64-разрядной шины. */
+		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555 + 4);
+		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa + 4);
+		jtag_write_word (FLASH_CMD_80, base + mc->flash_addr_5555 + 4);
+		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555 + 4);
+		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa + 4);
+		jtag_write_word (FLASH_CMD_10, base + mc->flash_addr_5555 + 4);
+	}
 	for (;;) {
 		fflush (stdout);
 		jtag_usleep (250000);
@@ -954,11 +963,14 @@ void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long wo
 	unsigned long base;
 
 	base = compute_base (addr);
+	if (mc->flash_width == 64 && (addr & 4)) {
+		/* Старшая половина 64-разрядной шины. */
+		base += 4;
+	}
 	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
 	jtag_write_next (FLASH_CMD_55, base + mc->flash_addr_2aaa);
 	jtag_write_next (FLASH_CMD_A0, base + mc->flash_addr_5555);
 	jtag_write_next (word, addr);
-	/* TODO: запись в 64-битную flash-память пока не реализована. */
 }
 
 void multicore_read_start (multicore_t *mc)

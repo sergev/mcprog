@@ -308,10 +308,6 @@ void do_program (int verify_only)
 		mfname, devname, bytes / 1024 / 1024);
 
 	if (! verify_only) {
-		if (width > 32) {
-			fprintf (stderr, "Writing to 64-bit memory not implemented yet, sorry.\n");
-			exit (1);
-		}
 		/* Erase flash. */
 		multicore_erase (multicore, flash_base);
 	}
@@ -376,12 +372,14 @@ usage:		printf ("\nProbe:\n");
 	argv += optind;
 	if (argc == 0) {
 		do_probe ();
-	} else if (argc <= 2) {
-		if (argc == 2)
-			flash_base = strtoul (argv[1], 0, 0);
+	} else if (argc == 1) {
 		flash_len = read_srec (argv[0], flash_data);
 		if (flash_len == 0)
 			flash_len = read_bin (argv[0], flash_data);
+		do_program (verify_only);
+	} else if (argc == 2) {
+		flash_base = strtoul (argv[1], 0, 0);
+		flash_len = read_bin (argv[0], flash_data);
 		do_program (verify_only);
 	} else
 		goto usage;
