@@ -241,14 +241,15 @@ void probe_flash (multicore_t *mc, unsigned base)
 	unsigned mfcode, devcode, bytes, width;
 	char mfname[40], devname[40];
 
-	printf ("Flash at 0x%08x: ", base);
+	printf ("Flash at %08x: ", base);
 	if (! multicore_flash_detect (mc, base, &mfcode, &devcode,
 	    mfname, devname, &bytes, &width)) {
 		printf ("Incorrect id %08x\n", devcode);
 		return;
 	}
-	printf ("%s %s (%08x/%08x), %d Mbytes, %d bit wide\n",
-		mfname, devname, mfcode, devcode, bytes / 1024 / 1024, width);
+	printf ("%s %s (id %04x/%04x), %d Mbytes, %d bit wide\n",
+		mfname, devname, mfcode & 0xFFFF, devcode & 0xFFFF,
+		bytes / 1024 / 1024, width);
 }
 
 void quit (void)
