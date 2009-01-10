@@ -31,13 +31,13 @@ Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
 }}}
 
 = Скачать =
-Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2008-12-01.zip здесь]. Потребуется установить драйвер GIVEIO,
+Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-01-10.zip здесь]. Потребуется установить драйвер GIVEIO,
 позволяющий прямой доступ к параллельному порту:
  # Кладём giveio.sys в C:\WINDOWS\system32\drivers\
  # Запускаем install.reg
  # Перезагружаемся
 
-Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2008-12-01.tgz здесь].
+Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-01-10.tgz здесь].
 
 = Исходные тексты =
 Исходные тексты распространяются на условиях лицензии GPL. Их можно скачать через SVN командой:
