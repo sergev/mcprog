@@ -7,6 +7,9 @@ all:		mcprog
 mcprog:		$(OBJS) mcprog.o
 		$(CC) -o mcprog mcprog.o $(OBJS)
 
+probe:		$(OBJS) probe.o
+		$(CC) -o probe probe.o $(OBJS)
+
 jtag/jtag.a:
 		$(MAKE) -C jtag all
 

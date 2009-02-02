@@ -7,3 +7,6 @@ all:		mcprog.exe
 
 mcprog.exe:	$(OBJS) mcprog.o
 		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS)
+
+probe.exe:	$(OBJS) probe.o
+		$(CC) $(LDFLAGS) -o $@ probe.o $(OBJS)
