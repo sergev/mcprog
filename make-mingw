@@ -1,4 +1,4 @@
-CC		= i586-mingw32msvc-gcc
+CC			= gcc
 CFLAGS		= -Wall -g -O -DMINGW32
 LDFLAGS		= -s
 OBJS		= multicore.o
