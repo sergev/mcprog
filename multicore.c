@@ -1,6 +1,6 @@
 /*
  * Интерфейс через адаптер LPT-JTAG к процессору Элвис Мультикор.
- * Разработано в ИТМиВТ, 2006-2008.
+ * Разработано в ИТМиВТ, 2006-2009.
  * Авторы: А.Ступаченко, С.Вакуленко.
  *
  * Этот файл распространяется в надежде, что он окажется полезным, но
@@ -958,7 +958,7 @@ int multicore_erase (multicore_t *mc, unsigned long addr)
 	return 1;
 }
 
-void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long word)
+void multicore_flash_write (multicore_t *mc, unsigned long addr, unsigned long word)
 {
 	unsigned long base;
 
@@ -981,4 +981,14 @@ void multicore_read_start (multicore_t *mc)
 unsigned long multicore_read_next (multicore_t *mc, unsigned long addr)
 {
 	return jtag_read_next (addr);
+}
+
+void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long word)
+{
+	jtag_write_word (word, addr);
+}
+
+void multicore_write_next (multicore_t *mc, unsigned long addr, unsigned long word)
+{
+	jtag_write_next (word, addr);
 }
