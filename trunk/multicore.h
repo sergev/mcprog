@@ -11,5 +11,6 @@ int multicore_flash_detect (multicore_t *mc, unsigned base,
 int multicore_erase (multicore_t *mc, unsigned long addr);
 void multicore_read_start (multicore_t *mc);
 unsigned long multicore_read_next (multicore_t *mc, unsigned long addr);
+void multicore_flash_write (multicore_t *mc, unsigned long addr, unsigned long word);
 void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long word);
-void multicore_write_8words (multicore_t *mc, unsigned long addr, unsigned long *data);
+void multicore_write_next (multicore_t *mc, unsigned long addr, unsigned long word);

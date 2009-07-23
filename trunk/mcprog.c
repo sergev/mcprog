@@ -1,7 +1,7 @@
 /*
  * Программатор flash-памяти для микроконтроллеров Элвис Мультикор.
  *
- * Разработано в ИТМиВТ, 2008.
+ * Разработано в ИТМиВТ, 2008-2009.
  * Автор: С.Вакуленко.
  *
  * Этот файл распространяется в надежде, что он окажется полезным, но
@@ -24,7 +24,7 @@
 #include "multicore.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
-#define VERSION		"1.4"
+#define VERSION		"1.5"
 #define BLOCKSZ		1024
 #define DEFAULT_ADDR	0xBFC00000
 
@@ -224,8 +224,22 @@ void program_block (multicore_t *mc, unsigned long addr, int len)
 	for (i=0; i<len; i+=4) {
 		word = *(unsigned long*) (flash_data + addr + i);
 		if (word != 0xffffffff)
-			multicore_write_word (mc, flash_base + addr + i,
+			multicore_flash_write (mc, flash_base + addr + i,
 				word);
+	}
+}
+
+void write_block (multicore_t *mc, unsigned long addr, int len)
+{
+	int i;
+	unsigned long word;
+
+	/* Write static memory. */
+	word = *(unsigned long*) (flash_data + addr);
+	multicore_write_word (mc, flash_base + addr, word);
+	for (i=4; i<len; i+=4) {
+		word = *(unsigned long*) (flash_data + addr + i);
+		multicore_write_next (mc, flash_base + addr + i, word);
 	}
 }
 
@@ -365,6 +379,51 @@ void do_program (int verify_only)
 		flash_len * 1000L / mseconds_elapsed (t0));
 }
 
+void do_write (int verify_only)
+{
+	unsigned long addr;
+	int len;
+	void *t0;
+
+	multicore_init ();
+	printf ("Memory: %08lx-%08lx, total %ld bytes\n", flash_base,
+		flash_base + flash_len, flash_len);
+
+	/* Open and detect the device. */
+	atexit (quit);
+	multicore = multicore_open ();
+	if (! multicore) {
+		fprintf (stderr, "Error detecting device -- check cable!\n");
+		exit (1);
+	}
+	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
+
+	for (progress_step=1; ; progress_step<<=1) {
+		len = 1 + flash_len / progress_step / BLOCKSZ;
+		if (len < 64)
+			break;
+	}
+	printf (verify_only ? "Verify: " : "Write: " );
+	print_symbols ('.', len);
+	print_symbols ('\b', len);
+	fflush (stdout);
+
+	progress_count = 0;
+	t0 = fix_time ();
+	for (addr=0; (long)addr<flash_len; addr+=BLOCKSZ) {
+		len = BLOCKSZ;
+		if (flash_len - addr < len)
+			len = flash_len - addr;
+		if (! verify_only)
+			write_block (multicore, addr, len);
+		progress ();
+		verify_block (multicore, addr, len);
+	}
+	printf ("# done\n");
+	printf ("Rate: %ld bytes per second\n",
+		flash_len * 1000L / mseconds_elapsed (t0));
+}
+
 void do_read (char *filename)
 {
 	FILE *fd;
@@ -425,13 +484,13 @@ void do_read (char *filename)
 
 int main (int argc, char **argv)
 {
-	int ch, verify_only = 0, read_mode = 0;
+	int ch, verify_only = 0, read_mode = 0, memory_write_mode = 0;
 
 	setvbuf (stdout, (char *)NULL, _IOLBF, 0);
 	setvbuf (stderr, (char *)NULL, _IOLBF, 0);
-	printf (PROGNAME ", Version " VERSION ", Copyright (C) 2008 IPMCE\n");
+	printf (PROGNAME ", Version " VERSION ", Copyright (C) 2008-2009 IPMCE\n");
 
-	while ((ch = getopt(argc, argv, "vDhr")) != -1) {
+	while ((ch = getopt(argc, argv, "vDhrw")) != -1) {
 		switch (ch) {
 		case 'v':
 			++verify_only;
@@ -442,6 +501,9 @@ int main (int argc, char **argv)
 		case 'r':
 			++read_mode;
 			continue;
+		case 'w':
+			++memory_write_mode;
+			continue;
 		case 'h':
 			break;
 		}
@@ -450,6 +512,9 @@ usage:		printf ("Probe:\n");
 		printf ("\nWrite flash memory:\n");
 		printf ("        mcprog [-v] file.sre\n");
 		printf ("        mcprog [-v] file.bin [address]\n");
+		printf ("\nWrite static memory:\n");
+		printf ("        mcprog -w [-v] file.sre\n");
+		printf ("        mcprog -w [-v] file.bin [address]\n");
 		printf ("\nRead memory:\n");
 		printf ("        mcprog -r file.bin address length\n");
 		printf ("\nArgs:\n");
@@ -458,6 +523,7 @@ usage:		printf ("Probe:\n");
 		printf ("        address    Address of flash memory, default 0x%08X\n",
 			DEFAULT_ADDR);
 		printf ("        -v         Verify only\n");
+		printf ("        -w         Memory write mode\n");
 		printf ("        -r         Read mode\n");
 		exit (0);
 	}
@@ -473,12 +539,18 @@ usage:		printf ("Probe:\n");
 			flash_base = DEFAULT_ADDR;
 			flash_len = read_bin (argv[0], flash_data);
 		}
-		do_program (verify_only);
+		if (memory_write_mode)
+			do_write (verify_only);
+		else
+			do_program (verify_only);
 		break;
 	case 2:
 		flash_base = strtoul (argv[1], 0, 0);
 		flash_len = read_bin (argv[0], flash_data);
-		do_program (verify_only);
+		if (memory_write_mode)
+			do_write (verify_only);
+		else
+			do_program (verify_only);
 		break;
 	case 3:
 		if (! read_mode)
