@@ -5,17 +5,35 @@
 В качестве программатора используется адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера.
 Поддерживаются чипы Flash-памяти AMD/Alliance 29LV800 и [http://www.sst.com/products.xhtml/parallel_flash/39/x16/SST39VF800A SST 39VF800].
 
-Вызов:
+Выдача информации о плате:
+{{{
+mcprog
+}}}
+
+Запись в flash-память:
 {{{
 mcprog [-v] file.srec
 mcprog [-v] file.bin [address]
 }}}
 
+Запись в статическую память:
+{{{
+mcprog -w [-v] file.sreс
+mcprog -w [-v] file.bin [address]
+}}}
+
+Чтение памяти:
+{{{
+mcprog -r file.bin address length
+}}}
+
 Параметры:
-  * -v - без записи, только проверка памяти на совпадение
   * file.srec - файл с прошивкой в [http://en.wikipedia.org/wiki/SREC_(file_format) формате SREC]
   * file.bin - бинарный файл с прошивкой
   * address - адрес flash-памяти, по умолчанию 0xBFC00000
+  * -v - без записи, только проверка памяти на совпадение
+  * -w - запись в статическую память
+  * -r - режим чтения
 
 Входной файл должен иметь простой бинарный формат, или [http://en.wikipedia.org/wiki/SREC_(file_format) SREC]. Формат SREC предпочтительнее, так как в нём имеется информация об адресах программы. Преобразовать формат ELF или COFF или A.OUT в SREC можно командой objcopy, например:
 {{{
