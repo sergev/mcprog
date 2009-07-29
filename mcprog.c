@@ -22,6 +22,7 @@
 #include <ctype.h>
 #include <sys/time.h>
 #include "multicore.h"
+#include "conf.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
 #define VERSION		"1.5"
@@ -302,8 +303,25 @@ void quit (void)
 	}
 }
 
+void configure_parameter (char *section, char *param, char *value)
+{
+	if (! section)
+		section = "(no section)";
+	printf ("%s / %s / %s", section, param, value);
+}
+
+/*
+ * Read configuration file and setup hardware registers.
+ */
+void configure ()
+{
+	conf_parse ("mcprog.conf", configure_parameter);
+}
+
 void do_probe ()
 {
+configure ();
+
 	/* Open and detect the device. */
 	multicore_init ();
 	atexit (quit);
@@ -315,6 +333,7 @@ void do_probe ()
 	printf ("Processor: %s (id %08x)\n", multicore_cpu_name (multicore),
 		multicore_idcode (multicore));
 
+	configure ();
 	probe_flash (multicore, 0x1FC00000);
 	probe_flash (multicore, 0x1FA00000);
 	probe_flash (multicore, 0x02000000);
@@ -341,6 +360,7 @@ void do_program (int verify_only)
 	}
 	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
 
+	configure ();
 	if (! multicore_flash_detect (multicore, flash_base,
 	    &mfcode, &devcode, mfname, devname, &bytes, &width)) {
 		printf ("No flash memory detected.\n");
@@ -398,6 +418,7 @@ void do_write (int verify_only)
 	}
 	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
 
+	configure ();
 	for (progress_step=1; ; progress_step<<=1) {
 		len = 1 + flash_len / progress_step / BLOCKSZ;
 		if (len < 64)
@@ -446,6 +467,7 @@ void do_read (char *filename)
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
+	configure ();
 	for (progress_step=1; ; progress_step<<=1) {
 		len = 1 + flash_len / progress_step / BLOCKSZ;
 		if (len < 64)
