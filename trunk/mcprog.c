@@ -39,6 +39,7 @@ unsigned long flash_base;
 unsigned long progress_count, progress_step;
 int debug;
 multicore_t *multicore;
+char *confname;
 
 void *fix_time ()
 {
@@ -305,9 +306,54 @@ void quit (void)
 
 void configure_parameter (char *section, char *param, char *value)
 {
-	if (! section)
-		section = "(no section)";
-	printf ("%s / %s / %s", section, param, value);
+	static char *device;
+	unsigned word;
+
+	if (! section) {
+		/* Remember default device name. */
+		if (strcasecmp (param, "default") == 0) {
+			device = strdup (value);
+			printf ("Architecture: %s\n", device);
+		} else {
+			fprintf (stderr, "%s: unknown parameter `%s'\n",
+				confname, param);
+			exit (-1);
+		}
+		return;
+	}
+	if (! device) {
+		fprintf (stderr, "%s: parameter 'default' missing\n", confname);
+		exit (-1);
+	}
+	if (strcasecmp (section, device) != 0)
+		return;
+
+	/* Needed section found. */
+	if (strcasecmp (param, "csr") == 0) {
+		word = strtol (value, 0, 0);
+		multicore_write_word (multicore, 0x182F4008, word);
+
+	} else if (strcasecmp (param, "cscon0") == 0) {
+		word = strtol (value, 0, 0);
+		multicore_write_word (multicore, 0x182F1000, word);
+
+	} else if (strcasecmp (param, "cscon1") == 0) {
+		word = strtol (value, 0, 0);
+		multicore_write_word (multicore, 0x182F1004, word);
+
+	} else if (strcasecmp (param, "cscon2") == 0) {
+		word = strtol (value, 0, 0);
+		multicore_write_word (multicore, 0x182F1008, word);
+
+	} else if (strcasecmp (param, "cscon3") == 0) {
+		word = strtol (value, 0, 0);
+		multicore_write_word (multicore, 0x182F100C, word);
+	} else {
+		fprintf (stderr, "%s: unknown parameter `%s'\n",
+			confname, param);
+		exit (-1);
+	}
+	printf ("Configure: %s = %08X\n", param, word);
 }
 
 /*
