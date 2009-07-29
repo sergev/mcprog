@@ -779,13 +779,13 @@ multicore_t *multicore_open ()
 	jtag_reset ();
 
 	/* CSR: fixed mapping, clock multiply by 5 (from 16 MHz to 80 MHz). */
-	jtag_write_word (0x00010051, 0x182F4008);
+/*	jtag_write_word (0x00010051, 0x182F4008);*/
 
         /* CSCON3: 5 wait states (really 4 is ok). */
-	jtag_write_word (0x00050000, 0x182F100C);
+/*	jtag_write_word (0x00050000, 0x182F100C);*/
 
         /* CSCON1: 5 wait states, address 02000000, 64 bits. */
-	jtag_write_word (0x009502FE, 0x182F1004);
+/*	jtag_write_word (0x009502FE, 0x182F1004);*/
 
 	return mc;
 }

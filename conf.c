@@ -26,6 +26,9 @@ static int eat_comment (FILE *fp)
 	return c;
 }
 
+/*
+ * Skip whitespaces to end of line.
+ */
 static int eat_whitespace (FILE *fp)
 {
 	int c;
@@ -36,18 +39,20 @@ static int eat_whitespace (FILE *fp)
 	return c;
 }
 
-static int parse_continuation (char *line, int pos)
+/*
+ * Search for continuation backshash, starting from line end,
+ * When found, return it's index.
+ * When no continuation, return -1.
+ */
+static int find_continuation (char *line, int pos)
 {
 	pos--;
 	while (pos >= 0 && isspace (line [pos]))
 		pos--;
-	if (pos < 0 || line[pos] != '\\') {
-		line [pos+1] = 0;
-		fprintf (stderr, "%s: invalid continuation line: '%s'\n",
-			confname, line);
-		exit (-1);
-	}
-	return pos;
+	if (pos >= 0 && line[pos] == '\\')
+		return pos;
+	/* No continuation. */
+	return -1;
 }
 
 /*
@@ -83,8 +88,18 @@ static void parse_parameter (FILE *fp, void (*pfunc) (char*, char*, char*), int 
 			bufr[i] = '\0';
 			break;
 
+		case ';':               	/* comment line */
+		case '#':
+			c = eat_comment (fp);
 		case '\n':
-			i = parse_continuation (bufr, i);
+			i = find_continuation (bufr, i);
+			if (i < 0) {
+				/* End of line, but no assignment symbol. */
+				bufr[end]='\0';
+				fprintf (stderr, "%s: bad line, ignored: `%s'\n",
+					confname, bufr);
+				return;
+			}
 			end = ((i > 0) && (bufr[i-1] == ' ')) ? (i-1) : (i);
 			c = getc (fp);
 			break;
@@ -126,11 +141,18 @@ static void parse_parameter (FILE *fp, void (*pfunc) (char*, char*, char*), int 
 			c = getc (fp);
 			break;
 
+		case ';':               	/* comment line */
+		case '#':
+			c = eat_comment (fp);
 		case '\n':
-			i = parse_continuation (bufr, i);
-			for (end=i; (end >= 0) && isspace (bufr[end]); end--)
-				;
-			c = getc (fp);
+			i = find_continuation (bufr, i);
+			if (i < 0)
+				c = 0;
+			else {
+				for (end=i; (end >= 0) && isspace (bufr[end]); end--)
+					;
+				c = getc (fp);
+			}
 			break;
 
 		default:
@@ -152,9 +174,10 @@ static void parse_section (FILE *fp)
 {
 	int c, i, end;
 
+	/* We've already got the '['. Scan past initial white space. */
+	c = eat_whitespace (fp);
 	i = 0;
 	end = 0;
-	c = eat_whitespace (fp);	/* we've already got the '['. scan past initial white space */
 	while (c > 0) {
 		if (i > (bsize-2)) {
 			bsize += 1024;
@@ -171,7 +194,6 @@ static void parse_section (FILE *fp)
 				fprintf (stderr, "%s: empty section name\n", confname);
 				exit (-1);
 			}
-
 			/* Register a section. */
 			if (cursec)
 				free (cursec);
@@ -181,7 +203,13 @@ static void parse_section (FILE *fp)
 			return;
 
 		case '\n':
-			i = parse_continuation (bufr, i);
+			i = find_continuation (bufr, i);
+			if (i < 0) {
+				bufr [end] = 0;
+				fprintf (stderr, "%s: invalid line: '%s'\n",
+					confname, bufr);
+				exit (-1);
+			}
 			end = ((i > 0) && (bufr[i-1] == ' ')) ? (i-1) : (i);
 			c = getc (fp);
 			break;
