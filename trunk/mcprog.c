@@ -356,7 +356,6 @@ void configure ()
 void do_probe ()
 {
 	unsigned addr, last;
-configure ();
 
 	/* Open and detect the device. */
 	multicore_init ();
