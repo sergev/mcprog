@@ -2,12 +2,9 @@
 CC		= i586-mingw32msvc-gcc
 CFLAGS		= -Wall -g -O -DMINGW32
 LDFLAGS		= -s
-OBJS		= multicore.o
+OBJS		= multicore.o conf.o
 
 all:		mcprog.exe
 
 mcprog.exe:	$(OBJS) mcprog.o
 		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS)
-
-probe.exe:	$(OBJS) probe.o
-		$(CC) $(LDFLAGS) -o $@ probe.o $(OBJS)
