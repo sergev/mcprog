@@ -5,9 +5,17 @@
 В качестве программатора используется адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера.
 Поддерживаются чипы Flash-памяти AMD/Alliance 29LV800 и [http://www.sst.com/products.xhtml/parallel_flash/39/x16/SST39VF800A SST 39VF800].
 
-Выдача информации о плате:
+= Вызов =
+
+При вызове без параметров утилита MCPROG определяет тип процессора
+и flash-памяти, установленных на плате. Например:
+
 {{{
-mcprog
+% mcprog
+Processor: MC12 (id 20777001)
+Flash at 1FC00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
+Flash at 1FA00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
+Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
 }}}
 
 Запись в flash-память:
@@ -22,7 +30,7 @@ mcprog -w [-v] file.sreс
 mcprog -w [-v] file.bin [address]
 }}}
 
-Чтение памяти:
+Чтение памяти в файл:
 {{{
 mcprog -r file.bin address length
 }}}
@@ -34,28 +42,31 @@ mcprog -r file.bin address length
   * -v - без записи, только проверка памяти на совпадение
   * -w - запись в статическую память
   * -r - режим чтения
+  * -b name - выбор типа платы
 
 Входной файл должен иметь простой бинарный формат, или [http://en.wikipedia.org/wiki/SREC_(file_format) SREC]. Формат SREC предпочтительнее, так как в нём имеется информация об адресах программы. Преобразовать формат ELF или COFF или A.OUT в SREC можно командой objcopy, например:
 {{{
 objcopy -O srec firmware.elf firmware.srec
 }}}
 
-При вызове без параметров утилита MCPROG определяет тип процессора и flash-памяти, установленных на плате. Например:
-{{{
-Processor: MC12 (id 20777001)
-Flash at 1FC00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
-Flash at 1FA00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
-Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
-}}}
+= Файл конфигурации =
+Утилита считывает параметры платы из файла конфигурации [http://code.google.com/p/mcprog/source/browse/trunk/mcprog.conf mcprog.conf].
+Файл должен находиться в текущем каталоге, либо в каталоге /usr/local/etc (для Linux), либо в каталоге утилиты "mcprog.exe" (для Windows).
+В файле для каждого типа платы задаются значения регистров CSR и CSCONi,
+а также диапазоны адресов секций flash-памяти.
+
+Тип платы задаётся при вызове флагом "-b", либо параметром "default"
+в конфигурационном файле.
+
 
 = Скачать =
-Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-01-10.zip здесь]. Потребуется установить драйвер GIVEIO,
+Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-07-29.zip здесь]. Потребуется установить драйвер GIVEIO,
 позволяющий прямой доступ к параллельному порту:
  # Кладём giveio.sys в C:\WINDOWS\system32\drivers\
  # Запускаем install.reg
  # Перезагружаемся
 
-Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-01-10.tgz здесь].
+Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-07-29.tgz здесь].
 
 = Исходные тексты =
 Исходные тексты распространяются на условиях лицензии GPL. Их можно скачать через SVN командой:
