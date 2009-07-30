@@ -13,6 +13,7 @@
 {{{
 % mcprog
 Processor: MC12 (id 20777001)
+Board: pkbi
 Flash at 1FC00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
 Flash at 1FA00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
 Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
