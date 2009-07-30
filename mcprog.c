@@ -25,7 +25,7 @@
 #include "conf.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
-#define VERSION		"1.5"
+#define VERSION		"1.6"
 #define BLOCKSZ		1024
 #define DEFAULT_ADDR	0xBFC00000
 
@@ -33,13 +33,15 @@
 #define NIBBLE(x)	(isdigit(x) ? (x)-'0' : tolower(x)+10-'a')
 #define HEX(buffer)	((NIBBLE((buffer)[0])<<4) + NIBBLE((buffer)[1]))
 
-unsigned char flash_data [0x200000];	/* Code - up to 2 Mbytes */
-long flash_len;
-unsigned long flash_base;
-unsigned long progress_count, progress_step;
+unsigned char memory_data [0x800000];	/* Code - up to 8 Mbytes */
+int memory_len;
+unsigned memory_base;
+unsigned progress_count, progress_step;
 int debug;
 multicore_t *multicore;
+char *progname;
 char *confname;
+char *board;
 
 void *fix_time ()
 {
@@ -49,10 +51,10 @@ void *fix_time ()
 	return &t0;
 }
 
-unsigned long mseconds_elapsed (void *arg)
+unsigned mseconds_elapsed (void *arg)
 {
 	struct timeval t1, *t0 = arg;
-	unsigned long mseconds;
+	unsigned mseconds;
 
 	gettimeofday (&t1, 0);
 	mseconds = (t1.tv_sec - t0->tv_sec) * 1000 +
@@ -75,7 +77,7 @@ int read_bin (char *filename, unsigned char *output)
 		perror (filename);
 		exit (1);
 	}
-	output_len = fread (output, 1, sizeof (flash_data), fd);
+	output_len = fread (output, 1, sizeof (memory_data), fd);
 	fclose (fd);
 	if (output_len <= 0) {
 		fprintf (stderr, "%s: read error\n", filename);
@@ -92,7 +94,7 @@ int read_srec (char *filename, unsigned char *output)
 	FILE *fd;
 	unsigned char buf [256];
 	unsigned char *data;
-	unsigned long address;
+	unsigned address;
 	int bytes, output_len;
 
 	fd = fopen (filename, "r");
@@ -143,66 +145,26 @@ int read_srec (char *filename, unsigned char *output)
 			data += 2;
 			bytes -= 2;
 
-			if (! flash_base) {
-#if 0
+			if (! memory_base) {
 				/* Автоматическое определение базового адреса. */
-				if (address >= 0x1FC00000 && address < 0x1FE00000)
-					flash_base = 0x1FC00000;
-				else if (address >= 0x1FA00000 && address < 0x1FC00000)
-					flash_base = 0x1FA00000;
-				else if (address >= 0x02000000 && address < 0x02400000)
-					flash_base = 0x02000000;
-				else if (address >= 0x9FC00000 && address < 0x9FE00000)
-					flash_base = 0x9FC00000;
-				else if (address >= 0x9FA00000 && address < 0x9FC00000)
-					flash_base = 0x9FA00000;
-				else if (address >= 0x82000000 && address < 0x82400000)
-					flash_base = 0x82000000;
-				else if (address >= 0xBFC00000 && address < 0xBFE00000)
-					flash_base = 0xBFC00000;
-				else if (address >= 0xBFA00000 && address < 0xBFC00000)
-					flash_base = 0xBFA00000;
-				else if (address >= 0xA2000000 && address < 0xA2400000)
-					flash_base = 0xA2000000;
-				else {
-					fprintf (stderr, "%s: incorrect address %08lx\n",
-						filename, address);
-					exit (1);
-				}
-#else
-				if ((address >= 0x1FC00000 && address < 0x1FE00000) ||
-				    (address >= 0x1FA00000 && address < 0x1FC00000) ||
-				    (address >= 0x02000000 && address < 0x02400000) ||
-				    (address >= 0x9FC00000 && address < 0x9FE00000) ||
-				    (address >= 0x9FA00000 && address < 0x9FC00000) ||
-				    (address >= 0x82000000 && address < 0x82400000) ||
-				    (address >= 0xBFC00000 && address < 0xBFE00000) ||
-				    (address >= 0xBFA00000 && address < 0xBFC00000) ||
-				    (address >= 0xA2000000 && address < 0xA2400000))
-					flash_base = address;
-				else {
-					fprintf (stderr, "%s: incorrect address %08lx\n",
-						filename, address);
-					exit (1);
-				}
-#endif
+				memory_base = address;
 			}
-			if (address < flash_base) {
-				fprintf (stderr, "%s: incorrect address %08lx, must be %08lx or greater\n",
-					filename, address, flash_base);
+			if (address < memory_base) {
+				fprintf (stderr, "%s: incorrect address %08X, must be %08X or greater\n",
+					filename, address, memory_base);
 				exit (1);
 			}
-			address -= flash_base;
-			if (address+bytes > sizeof (flash_data)) {
-				fprintf (stderr, "%s: address too large: %08lx + %08x\n",
-					filename, address + flash_base, bytes);
+			address -= memory_base;
+			if (address+bytes > sizeof (memory_data)) {
+				fprintf (stderr, "%s: address too large: %08X + %08X\n",
+					filename, address + memory_base, bytes);
 				exit (1);
 			}
 			while (bytes-- > 0) {
 				output[address++] = HEX (data);
 				data += 2;
 			}
-			if (output_len < (long) address)
+			if (output_len < (int) address)
 				output_len = address;
 			break;
 		}
@@ -217,31 +179,31 @@ void print_symbols (char symbol, int cnt)
 		putchar (symbol);
 }
 
-void program_block (multicore_t *mc, unsigned long addr, int len)
+void program_block (multicore_t *mc, unsigned addr, int len)
 {
 	int i;
-	unsigned long word;
+	unsigned word;
 
 	/* Write flash memory. */
 	for (i=0; i<len; i+=4) {
-		word = *(unsigned long*) (flash_data + addr + i);
+		word = *(unsigned*) (memory_data + addr + i);
 		if (word != 0xffffffff)
-			multicore_flash_write (mc, flash_base + addr + i,
+			multicore_flash_write (mc, memory_base + addr + i,
 				word);
 	}
 }
 
-void write_block (multicore_t *mc, unsigned long addr, int len)
+void write_block (multicore_t *mc, unsigned addr, int len)
 {
 	int i;
-	unsigned long word;
+	unsigned word;
 
 	/* Write static memory. */
-	word = *(unsigned long*) (flash_data + addr);
-	multicore_write_word (mc, flash_base + addr, word);
+	word = *(unsigned*) (memory_data + addr);
+	multicore_write_word (mc, memory_base + addr, word);
 	for (i=4; i<len; i+=4) {
-		word = *(unsigned long*) (flash_data + addr + i);
-		multicore_write_next (mc, flash_base + addr + i, word);
+		word = *(unsigned*) (memory_data + addr + i);
+		multicore_write_next (mc, memory_base + addr + i, word);
 	}
 }
 
@@ -257,23 +219,23 @@ void progress ()
 	}
 }
 
-void verify_block (multicore_t *mc, unsigned long addr, int len)
+void verify_block (multicore_t *mc, unsigned addr, int len)
 {
 	int i;
-	unsigned long word, expected;
+	unsigned word, expected;
 
 	multicore_read_start (mc);
 	for (i=0; i<len; i+=4) {
-		expected = *(unsigned long*) (flash_data+addr+i);
+		expected = *(unsigned*) (memory_data+addr+i);
 		if (expected == 0xffffffff)
 			continue;
-		word = multicore_read_next (mc, flash_base + addr + i);
+		word = multicore_read_next (mc, memory_base + addr + i);
 		if (debug > 1)
-			printf ("read word %08lx at address %08lx\n",
-				word, addr + i + flash_base);
-		if (word != *(unsigned long*) (flash_data+addr+i)) {
-			printf ("\nerror at address %08lx: file=%08lx, mem=%08lx\n",
-				addr + i + flash_base, expected, word);
+			printf ("read word %08X at address %08X\n",
+				word, addr + i + memory_base);
+		if (word != *(unsigned*) (memory_data+addr+i)) {
+			printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
+				addr + i + memory_base, expected, word);
 			exit (1);
 		}
 	}
@@ -284,10 +246,10 @@ void probe_flash (multicore_t *mc, unsigned base)
 	unsigned mfcode, devcode, bytes, width;
 	char mfname[40], devname[40];
 
-	printf ("Flash at %08x: ", base);
+	printf ("Flash at %08X: ", base);
 	if (! multicore_flash_detect (mc, base, &mfcode, &devcode,
 	    mfname, devname, &bytes, &width)) {
-		printf ("Incorrect id %08x\n", devcode);
+		printf ("Incorrect id %08X\n", devcode);
 		return;
 	}
 	printf ("%s %s (id %04x/%04x), %d Mbytes, %d bit wide\n",
@@ -306,14 +268,14 @@ void quit (void)
 
 void configure_parameter (char *section, char *param, char *value)
 {
-	static char *device;
-	unsigned word;
+	unsigned word, first, last;
 
 	if (! section) {
-		/* Remember default device name. */
+		/* Remember default board name. */
 		if (strcasecmp (param, "default") == 0) {
-			device = strdup (value);
-			printf ("Architecture: %s\n", device);
+			if (! board)
+				board = strdup (value);
+			printf ("Board: %s\n", board);
 		} else {
 			fprintf (stderr, "%s: unknown parameter `%s'\n",
 				confname, param);
@@ -321,11 +283,11 @@ void configure_parameter (char *section, char *param, char *value)
 		}
 		return;
 	}
-	if (! device) {
+	if (! board) {
 		fprintf (stderr, "%s: parameter 'default' missing\n", confname);
 		exit (-1);
 	}
-	if (strcasecmp (section, device) != 0)
+	if (strcasecmp (section, board) != 0)
 		return;
 
 	/* Needed section found. */
@@ -348,12 +310,21 @@ void configure_parameter (char *section, char *param, char *value)
 	} else if (strcasecmp (param, "cscon3") == 0) {
 		word = strtol (value, 0, 0);
 		multicore_write_word (multicore, 0x182F100C, word);
+
+	} else if (strncasecmp (param, "flash ", 6) == 0) {
+		if (sscanf (value, "%i-%i", &first, &last) != 2) {
+			fprintf (stderr, "%s: incorrect value for parameter `%s'\n",
+				confname, param);
+			exit (-1);
+		}
+/*		printf ("  %s = %08X-%08X\n", param, first, last);*/
+		multicore_flash_configure (multicore, first, last);
 	} else {
 		fprintf (stderr, "%s: unknown parameter `%s'\n",
 			confname, param);
 		exit (-1);
 	}
-	printf ("Configure: %s = %08X\n", param, word);
+/*	printf ("Configure: %s = %08X\n", param, word);*/
 }
 
 /*
@@ -361,11 +332,30 @@ void configure_parameter (char *section, char *param, char *value)
  */
 void configure ()
 {
-	conf_parse ("mcprog.conf", configure_parameter);
+	confname = "mcprog.conf";
+	if (access (confname, 0) < 0) {
+#if defined (__CYGWIN32__) || defined (MINGW32)
+		char *p = strrchr (progname, '\\');
+		if (p) {
+			confname = malloc (p - progname + 16);
+			if (! confname) {
+				fprintf (stderr, "%s: out of memory\n", progname);
+				exit (-1);
+			}
+			strncpy (confname, progname, p - progname);
+			strcpy (confname + (p - progname), "\\mcprog.conf");
+		} else
+			confname = "c:\\mcprog.conf";
+#else
+		confname = "/usr/local/etc/mcprog.conf";
+#endif
+	}
+	conf_parse (confname, configure_parameter);
 }
 
 void do_probe ()
 {
+	unsigned addr, last;
 configure ();
 
 	/* Open and detect the device. */
@@ -376,26 +366,32 @@ configure ();
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
-	printf ("Processor: %s (id %08x)\n", multicore_cpu_name (multicore),
+	printf ("Processor: %s (id %08X)\n", multicore_cpu_name (multicore),
 		multicore_idcode (multicore));
 
 	configure ();
-	probe_flash (multicore, 0x1FC00000);
-	probe_flash (multicore, 0x1FA00000);
-	probe_flash (multicore, 0x02000000);
+
+	/* Probe all configured flash regions. */
+	addr = ~0;
+	for (;;) {
+		addr = multicore_flash_next (multicore, addr, &last);
+		if (! ~addr)
+			break;
+		probe_flash (multicore, addr);
+	}
 }
 
 void do_program (int verify_only)
 {
-	unsigned long addr;
+	unsigned addr;
 	unsigned mfcode, devcode, bytes, width;
 	char mfname[40], devname[40];
 	int len;
 	void *t0;
 
 	multicore_init ();
-	printf ("Memory: %08lx-%08lx, total %ld bytes\n", flash_base,
-		flash_base + flash_len, flash_len);
+	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
@@ -407,7 +403,7 @@ void do_program (int verify_only)
 	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
 
 	configure ();
-	if (! multicore_flash_detect (multicore, flash_base,
+	if (! multicore_flash_detect (multicore, memory_base,
 	    &mfcode, &devcode, mfname, devname, &bytes, &width)) {
 		printf ("No flash memory detected.\n");
 		return;
@@ -417,10 +413,10 @@ void do_program (int verify_only)
 
 	if (! verify_only) {
 		/* Erase flash. */
-		multicore_erase (multicore, flash_base);
+		multicore_erase (multicore, memory_base);
 	}
 	for (progress_step=1; ; progress_step<<=1) {
-		len = 1 + flash_len / progress_step / BLOCKSZ;
+		len = 1 + memory_len / progress_step / BLOCKSZ;
 		if (len < 64)
 			break;
 	}
@@ -431,10 +427,10 @@ void do_program (int verify_only)
 
 	progress_count = 0;
 	t0 = fix_time ();
-	for (addr=0; (long)addr<flash_len; addr+=BLOCKSZ) {
+	for (addr=0; (int)addr<memory_len; addr+=BLOCKSZ) {
 		len = BLOCKSZ;
-		if (flash_len - addr < len)
-			len = flash_len - addr;
+		if (memory_len - addr < len)
+			len = memory_len - addr;
 		if (! verify_only)
 			program_block (multicore, addr, len);
 		progress ();
@@ -442,18 +438,18 @@ void do_program (int verify_only)
 	}
 	printf ("# done\n");
 	printf ("Rate: %ld bytes per second\n",
-		flash_len * 1000L / mseconds_elapsed (t0));
+		memory_len * 1000L / mseconds_elapsed (t0));
 }
 
 void do_write (int verify_only)
 {
-	unsigned long addr;
+	unsigned addr;
 	int len;
 	void *t0;
 
 	multicore_init ();
-	printf ("Memory: %08lx-%08lx, total %ld bytes\n", flash_base,
-		flash_base + flash_len, flash_len);
+	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
@@ -466,7 +462,7 @@ void do_write (int verify_only)
 
 	configure ();
 	for (progress_step=1; ; progress_step<<=1) {
-		len = 1 + flash_len / progress_step / BLOCKSZ;
+		len = 1 + memory_len / progress_step / BLOCKSZ;
 		if (len < 64)
 			break;
 	}
@@ -477,10 +473,10 @@ void do_write (int verify_only)
 
 	progress_count = 0;
 	t0 = fix_time ();
-	for (addr=0; (long)addr<flash_len; addr+=BLOCKSZ) {
+	for (addr=0; (int)addr<memory_len; addr+=BLOCKSZ) {
 		len = BLOCKSZ;
-		if (flash_len - addr < len)
-			len = flash_len - addr;
+		if (memory_len - addr < len)
+			len = memory_len - addr;
 		if (! verify_only)
 			write_block (multicore, addr, len);
 		progress ();
@@ -488,7 +484,7 @@ void do_write (int verify_only)
 	}
 	printf ("# done\n");
 	printf ("Rate: %ld bytes per second\n",
-		flash_len * 1000L / mseconds_elapsed (t0));
+		memory_len * 1000L / mseconds_elapsed (t0));
 }
 
 void do_read (char *filename)
@@ -503,8 +499,8 @@ void do_read (char *filename)
 		exit (1);
 	}
 	multicore_init ();
-	printf ("Memory: %08lx-%08lx, total %ld bytes\n", flash_base,
-		flash_base + flash_len, flash_len);
+	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
@@ -515,7 +511,7 @@ void do_read (char *filename)
 	}
 	configure ();
 	for (progress_step=1; ; progress_step<<=1) {
-		len = 1 + flash_len / progress_step / BLOCKSZ;
+		len = 1 + memory_len / progress_step / BLOCKSZ;
 		if (len < 64)
 			break;
 	}
@@ -526,18 +522,18 @@ void do_read (char *filename)
 
 	progress_count = 0;
 	t0 = fix_time ();
-	for (addr=0; (long)addr<flash_len; addr+=BLOCKSZ) {
+	for (addr=0; (int)addr<memory_len; addr+=BLOCKSZ) {
 		len = BLOCKSZ;
-		if (flash_len - addr < len)
-			len = flash_len - addr;
+		if (memory_len - addr < len)
+			len = memory_len - addr;
 		progress ();
 
 		multicore_read_start (multicore);
 		for (i=0; i<len; i+=4) {
-			word = multicore_read_next (multicore, flash_base + addr + i);
+			word = multicore_read_next (multicore, memory_base + addr + i);
 			if (debug > 1)
-				printf ("read word %08x at address %08lx\n",
-					word, addr + i + flash_base);
+				printf ("read word %08X at address %08X\n",
+					word, addr + i + memory_base);
 			if (fwrite (&word, 1, sizeof (word), fd) != sizeof (word)) {
 				fprintf (stderr, "%s: write error!\n", filename);
 				exit (1);
@@ -546,7 +542,7 @@ void do_read (char *filename)
 	}
 	printf ("# done\n");
 	printf ("Rate: %ld bytes per second\n",
-		flash_len * 1000L / mseconds_elapsed (t0));
+		memory_len * 1000L / mseconds_elapsed (t0));
 	fclose (fd);
 }
 
@@ -557,8 +553,9 @@ int main (int argc, char **argv)
 	setvbuf (stdout, (char *)NULL, _IOLBF, 0);
 	setvbuf (stderr, (char *)NULL, _IOLBF, 0);
 	printf (PROGNAME ", Version " VERSION ", Copyright (C) 2008-2009 IPMCE\n");
+	progname = argv[0];
 
-	while ((ch = getopt(argc, argv, "vDhrw")) != -1) {
+	while ((ch = getopt(argc, argv, "vDhrwb:")) != -1) {
 		switch (ch) {
 		case 'v':
 			++verify_only;
@@ -571,6 +568,9 @@ int main (int argc, char **argv)
 			continue;
 		case 'w':
 			++memory_write_mode;
+			continue;
+		case 'b':
+			board = optarg;
 			continue;
 		case 'h':
 			break;
@@ -593,6 +593,7 @@ usage:		printf ("Probe:\n");
 		printf ("        -v         Verify only\n");
 		printf ("        -w         Memory write mode\n");
 		printf ("        -r         Read mode\n");
+		printf ("        -b name    Specify board name\n");
 		exit (0);
 	}
 	argc -= optind;
@@ -602,10 +603,10 @@ usage:		printf ("Probe:\n");
 		do_probe ();
 		break;
 	case 1:
-		flash_len = read_srec (argv[0], flash_data);
-		if (flash_len == 0) {
-			flash_base = DEFAULT_ADDR;
-			flash_len = read_bin (argv[0], flash_data);
+		memory_len = read_srec (argv[0], memory_data);
+		if (memory_len == 0) {
+			memory_base = DEFAULT_ADDR;
+			memory_len = read_bin (argv[0], memory_data);
 		}
 		if (memory_write_mode)
 			do_write (verify_only);
@@ -613,8 +614,8 @@ usage:		printf ("Probe:\n");
 			do_program (verify_only);
 		break;
 	case 2:
-		flash_base = strtoul (argv[1], 0, 0);
-		flash_len = read_bin (argv[0], flash_data);
+		memory_base = strtoul (argv[1], 0, 0);
+		memory_len = read_bin (argv[0], memory_data);
 		if (memory_write_mode)
 			do_write (verify_only);
 		else
@@ -623,8 +624,8 @@ usage:		printf ("Probe:\n");
 	case 3:
 		if (! read_mode)
 			goto usage;
-		flash_base = strtoul (argv[1], 0, 0);
-		flash_len = strtoul (argv[2], 0, 0);
+		memory_base = strtoul (argv[1], 0, 0);
+		memory_len = strtoul (argv[2], 0, 0);
 		do_read (argv[0]);
 		break;
 	default:

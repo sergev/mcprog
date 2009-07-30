@@ -23,6 +23,8 @@
 
 #include "multicore.h"
 
+#define NFLASH		16	/* Max flash regions. */
+
 struct _multicore_t {
 	char		*cpu_name;
 	unsigned 	idcode;
@@ -31,6 +33,8 @@ struct _multicore_t {
 	unsigned	flash_addr_5555;
 	unsigned	flash_addr_2aaa;
 	unsigned	flash_devid_offset;
+	unsigned	flash_base [NFLASH];
+	unsigned	flash_last [NFLASH];
 };
 
 /* Идентификатор производителя flash. */
@@ -175,7 +179,7 @@ struct _multicore_t {
 #   include <sys/io.h>
 #else
 #   ifndef inb
-inline unsigned char inb (unsigned short port)
+inline unsigned char inb (unsigned port)
 {
 	unsigned char val;
 
@@ -186,7 +190,7 @@ inline unsigned char inb (unsigned short port)
 #   endif
 
 #   ifndef outb
-inline void outb (unsigned char value, unsigned short port)
+inline void outb (unsigned char value, unsigned port)
 {
 	/*printf ("output to %04x is %02x\n", port, value);*/
 	__asm__ __volatile__ ("outb %b0, %w1" : : "a" (value), "Nd" (port));
@@ -308,13 +312,13 @@ static void get_winnt_lpt_access()
 	CloseHandle (h);
 }
 
-void jtag_usleep (unsigned long usec)
+void jtag_usleep (unsigned usec)
 {
 	Sleep (usec / 1000);
 }
 #else
 /* Unix. */
-void jtag_usleep (unsigned long usec)
+void jtag_usleep (unsigned usec)
 {
 	usleep (usec);
 }
@@ -759,14 +763,14 @@ multicore_t *multicore_open ()
 	/* For ARM7TDMI must be 0x1f0f0f0f. */
 	mc->idcode = jtag_get_idcode();
 	/* if (debug > 1)
-		fprintf (stderr, "idcode %08x\n", mc->idcode); */
+		fprintf (stderr, "idcode %08X\n", mc->idcode); */
 	switch (mc->idcode) {
 	default:
 		/* Device not detected. */
 		if (mc->idcode == 0xffffffff || mc->idcode == 0)
 			fprintf (stderr, "No response from device -- check power is on!\n");
 		else
-			fprintf (stderr, "No response from device -- unknown idcode 0x%08x!\n",
+			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
 				mc->idcode);
 		exit (1);
 	case MC12_ID:
@@ -778,14 +782,8 @@ multicore_t *multicore_open ()
 	}
 	jtag_reset ();
 
-	/* CSR: fixed mapping, clock multiply by 5 (from 16 MHz to 80 MHz). */
-/*	jtag_write_word (0x00010051, 0x182F4008);*/
-
-        /* CSCON3: 5 wait states (really 4 is ok). */
-/*	jtag_write_word (0x00050000, 0x182F100C);*/
-
-        /* CSCON1: 5 wait states, address 02000000, 64 bits. */
-/*	jtag_write_word (0x009502FE, 0x182F1004);*/
+	/* CSR: fixed mapping, clock multiply by 1. */
+	jtag_write_word (0x00010011, 0x182F4008);
 
 	return mc;
 }
@@ -823,6 +821,45 @@ void multicore_close (multicore_t *mc)
 	oncd_write (0, OnCD_EXIT | 0x60, 0);
 }
 
+/*
+ * Add a flash region.
+ */
+void multicore_flash_configure (multicore_t *mc, unsigned first, unsigned last)
+{
+	int i;
+
+	for (i=0; i<NFLASH; ++i) {
+		if (! mc->flash_last [i]) {
+			mc->flash_base [i] = first;
+			mc->flash_last [i] = last;
+			return;
+		}
+	}
+	fprintf (stderr, "multicore_flash_configure: too many flash regions.\n");
+	exit (1);
+}
+
+/*
+ * Iterate trough all flash regions.
+ */
+unsigned multicore_flash_next (multicore_t *mc, unsigned prev, unsigned *last)
+{
+	int i;
+
+	if (prev == ~0 && mc->flash_base [0]) {
+		*last = mc->flash_last [0];
+		return mc->flash_base [0];
+	}
+	for (i=1; i<NFLASH && mc->flash_last[i]; ++i) {
+		if (prev >= mc->flash_base [i-1] &&
+		    prev <= mc->flash_last [i-1]) {
+			*last = mc->flash_last [i];
+			return mc->flash_base [i];
+		}
+	}
+	return ~0;
+}
+
 char *multicore_cpu_name (multicore_t *mc)
 {
 	return mc->cpu_name;
@@ -835,25 +872,22 @@ unsigned multicore_idcode (multicore_t *mc)
 
 /*
  * Вычисление базового адреса микросхемы flash-памяти.
- * На вычислителе ИТМиВТ имеем три банка:
- * - 2 мегабайта с адреса 1FA00000
- * - 2 мегабайта с адреса 1FC00000
- * - 4 мегабайта с адреса 02000000, 64-битный режим.
  */
-static unsigned long compute_base (unsigned long addr)
+static unsigned compute_base (multicore_t *mc, unsigned addr)
 {
+	int i;
+
 	if (addr >= 0xA0000000)
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
 
-	if (addr >= 0x1FC00000 && addr < 0x1FE00000)
-		return 0x1FC00000;
-	if (addr >= 0x1FA00000 && addr < 0x1FC00000)
-		return 0x1FA00000;
-	if (addr >= 0x02000000 && addr < 0x02400000)
-		return 0x02000000;
-	fprintf (stderr, "Invalid address 0x%08lx!\n", addr);
+	for (i=0; i<NFLASH && mc->flash_last[i]; ++i) {
+		if (addr >= mc->flash_base [i] &&
+		    addr <= mc->flash_last [i])
+			return mc->flash_base [i];
+	}
+	fprintf (stderr, "multicore: no flash region for address 0x%08X\n", addr);
 	exit (1);
 	return 0;
 }
@@ -863,9 +897,9 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 	unsigned *bytes, unsigned *width)
 {
 	int count;
-	unsigned long base;
+	unsigned base;
 
-	base = compute_base (addr);
+	base = compute_base (mc, addr);
 	for (count=0; count<10; ++count) {
 		/* Try both 32 and 64 bus width.*/
 		if (count & 1) {
@@ -885,7 +919,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 		jtag_write_word (FLASH_CMD_90, base + mc->flash_addr_5555);
 		*dev = jtag_read_word (base + mc->flash_devid_offset);
 		/* if (debug > 1)
-			fprintf (stderr, "flash id %08x\n", *dev); */
+			fprintf (stderr, "flash id %08X\n", *dev); */
 		switch (*dev) {
 		case ID_29LV800_B:
 			strcpy (devname, "29LV800B");
@@ -901,7 +935,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			goto success;
 		}
 	}
-	/*printf ("Bad flash id = %08x, must be %08x, %08x or %08x\n",
+	/*printf ("Bad flash id = %08X, must be %08X, %08X or %08X\n",
 		*dev, ID_29LV800_B, ID_29LV800_T, ID_39VF800_A);*/
 	return 0;
 
@@ -912,7 +946,7 @@ success:
 	case ID_ALLIANCE: strcpy (mfname, "Alliance");	   break;
 	case ID_AMD:	  strcpy (mfname, "AMD");	   break;
 	case ID_SST:	  strcpy (mfname, "SST");	   break;
-	default:	  sprintf (mfname, "<%08x>", *mf); break;
+	default:	  sprintf (mfname, "<%08X>", *mf); break;
 	}
 
 	/* Stop read ID mode. */
@@ -923,13 +957,13 @@ success:
 	return 1;
 }
 
-int multicore_erase (multicore_t *mc, unsigned long addr)
+int multicore_erase (multicore_t *mc, unsigned addr)
 {
-	unsigned long word, base;
+	unsigned word, base;
 
 	/* Chip erase. */
-	base = compute_base (addr);
-	printf ("Erase: %08lx", base);
+	base = compute_base (mc, addr);
+	printf ("Erase: %08X", base);
 	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
 	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
 	jtag_write_word (FLASH_CMD_80, base + mc->flash_addr_5555);
@@ -958,11 +992,11 @@ int multicore_erase (multicore_t *mc, unsigned long addr)
 	return 1;
 }
 
-void multicore_flash_write (multicore_t *mc, unsigned long addr, unsigned long word)
+void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 {
-	unsigned long base;
+	unsigned base;
 
-	base = compute_base (addr);
+	base = compute_base (mc, addr);
 	if (mc->flash_width == 64 && (addr & 4)) {
 		/* Старшая половина 64-разрядной шины. */
 		base += 4;
@@ -978,17 +1012,17 @@ void multicore_read_start (multicore_t *mc)
 	jtag_read_start ();
 }
 
-unsigned long multicore_read_next (multicore_t *mc, unsigned long addr)
+unsigned multicore_read_next (multicore_t *mc, unsigned addr)
 {
 	return jtag_read_next (addr);
 }
 
-void multicore_write_word (multicore_t *mc, unsigned long addr, unsigned long word)
+void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
 {
 	jtag_write_word (word, addr);
 }
 
-void multicore_write_next (multicore_t *mc, unsigned long addr, unsigned long word)
+void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word)
 {
 	jtag_write_next (word, addr);
 }
