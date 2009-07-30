@@ -77,7 +77,7 @@ default = mc24em-10
 [pkbi]
         CSR    = 0x00010051     # Умножаем частоту на 5, до 80 МГц
         CSCON3 = 0x00050000     # Память boot и param flash: ширина 32 разряда,
-                                # 5 wait states (хотя достаточно 4)
+                                # 5 wait states
         CSCON1 = 0x009502FE     # Память main flash: ширина 64 разряда,
                                 # адрес 02000000, 5 wait states
         flash boot  = 0x1FC00000-0x1FDFFFFF
