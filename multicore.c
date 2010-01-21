@@ -111,8 +111,8 @@ struct _multicore_t {
 /*
  * LPT port definitions
  */
-#define LPT_BASE 	0xe800			/* LPT on PCI */
-#define ECP_ECR 	0xe482			/* ECP Extended Control Register */
+//#define LPT_BASE 	0xe800			/* LPT on PCI */
+//#define ECP_ECR 	0xe482			/* ECP Extended Control Register */
 
 #ifndef LPT_BASE
 #   define LPT_BASE 	0x378
@@ -184,11 +184,11 @@ inline unsigned char inb (unsigned port)
 	unsigned char value;
 
 	__asm__ __volatile__ ("inb %w1, %0" : "=a" (value) : "Nd" (port));
-if (port == SPP_CONTROL)     printf ("        ctrl");
-else if (port == SPP_STATUS) printf ("        stat");
-else if (port == EPP_ADDR)   printf ("        addr");
-else                         printf ("        %04x", port);
-printf (" -> %02x\n", value);
+//if (port == SPP_CONTROL)     printf ("        ctrl");
+//else if (port == SPP_STATUS) printf ("        stat");
+//else if (port == EPP_ADDR)   printf ("        addr");
+//else                         printf ("        %04x", port);
+//printf (" -> %02x\n", value);
 	return value;
 }
 #   endif
@@ -196,11 +196,11 @@ printf (" -> %02x\n", value);
 #   ifndef outb
 inline void outb (unsigned char value, unsigned port)
 {
-printf ("%02x -> ", value);
-if (port == SPP_CONTROL)     printf ("ctrl\n");
-else if (port == SPP_STATUS) printf ("stat\n");
-else if (port == EPP_ADDR)   printf ("addr\n");
-else                         printf ("%04x\n", port);
+//printf ("%02x -> ", value);
+//if (port == SPP_CONTROL)     printf ("ctrl\n");
+//else if (port == SPP_STATUS) printf ("stat\n");
+//else if (port == EPP_ADDR)   printf ("addr\n");
+//else                         printf ("%04x\n", port);
 	__asm__ __volatile__ ("outb %b0, %w1" : : "a" (value), "Nd" (port));
 }
 #   endif
@@ -552,7 +552,7 @@ static void exec (unsigned instr)
 void jtag_start (void)
 {
 	unsigned char ctrl, status;
-fprintf (stderr, "jtag_start called\n");
+//fprintf (stderr, "jtag_start called\n");
 
 	/* LPT port probably in ECP mode, try to select EPP mode */
 #if ECP_ECR
@@ -560,7 +560,7 @@ fprintf (stderr, "jtag_start called\n");
 	outb (ECR_MODE_EPP, ECP_ECR);
 #endif
 	ctrl = inb (SPP_CONTROL);
-#if 1
+#if 0
 	unsigned char dsr = inb (SPP_STATUS);
 	unsigned char ecr = inb (ECP_ECR);
 	outb (1, ECP_ECR);
@@ -598,7 +598,7 @@ fprintf (stderr, "jtag_start called\n");
 		exit (1);
 	}
 	putcmd (MCIF_START);
-fprintf (stderr, "jtag_start finished\n");
+//fprintf (stderr, "jtag_start finished\n");
 }
 
 /*
@@ -790,8 +790,7 @@ multicore_t *multicore_open ()
 
 	/* For ARM7TDMI must be 0x1f0f0f0f. */
 	mc->idcode = jtag_get_idcode();
-	/* if (debug > 1)
-		fprintf (stderr, "idcode %08X\n", mc->idcode); */
+//fprintf (stderr, "idcode %08X\n", mc->idcode); 
 	switch (mc->idcode) {
 	default:
 		/* Device not detected. */
@@ -811,7 +810,7 @@ multicore_t *multicore_open ()
 	jtag_reset ();
 
 	/* CSR: fixed mapping, clock multiply by 1. */
-	jtag_write_word (0x00010011, 0x182F4008);
+//	jtag_write_word (0x00010011, 0x182F4008);
 
 	return mc;
 }
