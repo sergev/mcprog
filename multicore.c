@@ -111,24 +111,26 @@ struct _multicore_t {
 /*
  * LPT port definitions
  */
+#define LPT_BASE 	0xe800			/* LPT on PCI */
+#define ECP_ECR 	0xe482			/* ECP Extended Control Register */
+
 #ifndef LPT_BASE
 #   define LPT_BASE 	0x378
+#   define ECP_ECR	(LPT_BASE + 0x402)	/* ECP Extended Control Register */
 #endif
 #define SPP_DATA	(LPT_BASE + 0)
 #define SPP_STATUS	(LPT_BASE + 1)
 #define SPP_CONTROL	(LPT_BASE + 2)
 #define EPP_ADDR	(LPT_BASE + 3)
 #define EPP_DATA	(LPT_BASE + 4)
-#define ECP_ECR		(LPT_BASE + 0x402)	/* ECP Extended Control Register */
 
 /* Status Register */
 #define EPP_STATUS_TMOUT	0x01	/* EPP TimeOut, only for EPP mode */
-#define	SPP_STATUS_nIRQ		0x04	/* 0 - IRQ occured */
 #define	SPP_STATUS_nERROR	0x08	/* pin 15 - Error bit */
 #define	SPP_STATUS_SELECT	0x10	/* pin 13 - Select In */
 #define	SPP_STATUS_POUT		0x20	/* pin 12 - Out of Paper */
 #define	SPP_STATUS_nACK		0x40	/* pin 10 - Ack */
-#define	SPP_STATUS_BUSY		0x80	/* pin 11 - Busy, hw inv */
+#define	SPP_STATUS_nBUSY	0x80	/* pin 11 - Busy, hw inv */
 
 /* Control Register */
 #define	SPP_CONTROL_nSTROBE	0x01	/* pin 1  - Strobe, hw inv */
@@ -136,10 +138,10 @@ struct _multicore_t {
 #define SPP_CONTROL_nRESET	0x04	/* pin 16 - Initialize Printer */
 #define	SPP_CONTROL_nSELECT	0x08	/* pin 17 - Select Printer, hw inv */
 #define	SPP_CONTROL_IRQEN	0x10	/* IRQ Enable */
-#define	SPP_CONTROL_BI		0x20	/* Enable Bi-directional mode */
+#define	SPP_CONTROL_DIRIN	0x20	/* Enable input mode */
 
 /* ECP Extended Control Register */
-#define ECR_MODE_EPP		0x80	/* Select EPP mode */
+#define ECR_MODE_EPP		0x81	/* Select EPP mode */
 
 /*
  * EPP <-> JTAG Interface Adapter
@@ -152,8 +154,6 @@ struct _multicore_t {
 #define MCIF_PREREAD	0x10	/* Prepare data for reading */
 #define MCIF_WRITE_DR	0x20	/* Write data from adapter into TAP DR */
 #define MCIF_WRITE_IR	0x80	/* Write data from adapter into TAP IR */
-#define MCIF_START_WRDR	0x40	/* Write first portion of data into DR */
-#define MCIF_CONT_WRDR	0x41	/* Write remaining data into DR */
 
 /* Adapter version >= 0x1 */
 #define MCIF_RTI_PAUSE	0x40	/* RTI -> Capture -> Exit1 -> Pause */
@@ -175,24 +175,32 @@ struct _multicore_t {
 /*
  * Процедуры обращения к портам ввода-вывода.
  */
-#ifdef __linux__
+#if 0 //def __linux__
 #   include <sys/io.h>
 #else
 #   ifndef inb
 inline unsigned char inb (unsigned port)
 {
-	unsigned char val;
+	unsigned char value;
 
-	__asm__ __volatile__ ("inb %w1, %0" : "=a" (val) : "Nd" (port));
-	/*printf ("input from %04x is %02x\n", port, value & 0xff);*/
-	return val;
+	__asm__ __volatile__ ("inb %w1, %0" : "=a" (value) : "Nd" (port));
+if (port == SPP_CONTROL)     printf ("        ctrl");
+else if (port == SPP_STATUS) printf ("        stat");
+else if (port == EPP_ADDR)   printf ("        addr");
+else                         printf ("        %04x", port);
+printf (" -> %02x\n", value);
+	return value;
 }
 #   endif
 
 #   ifndef outb
 inline void outb (unsigned char value, unsigned port)
 {
-	/*printf ("output to %04x is %02x\n", port, value);*/
+printf ("%02x -> ", value);
+if (port == SPP_CONTROL)     printf ("ctrl\n");
+else if (port == SPP_STATUS) printf ("stat\n");
+else if (port == EPP_ADDR)   printf ("addr\n");
+else                         printf ("%04x\n", port);
 	__asm__ __volatile__ ("outb %b0, %w1" : : "a" (value), "Nd" (port));
 }
 #   endif
@@ -339,11 +347,11 @@ static void direction_reverse (int reverse)
 
 	ctrl = inb (SPP_CONTROL);
 	if (reverse) {
-		/* Enable bi-directional mode */
-		ctrl |= SPP_CONTROL_BI;
+		/* Enable input mode */
+		ctrl |= SPP_CONTROL_DIRIN;
 	} else {
 		/* Make sure port is in Forward Direction */
-		ctrl &= ~SPP_CONTROL_BI;
+		ctrl &= ~SPP_CONTROL_DIRIN;
 	}
 	outb (ctrl, SPP_CONTROL);
 	cur_mode = reverse;
@@ -544,13 +552,32 @@ static void exec (unsigned instr)
 void jtag_start (void)
 {
 	unsigned char ctrl, status;
+fprintf (stderr, "jtag_start called\n");
 
 	/* LPT port probably in ECP mode, try to select EPP mode */
+#if ECP_ECR
+	outb (1, ECP_ECR);
 	outb (ECR_MODE_EPP, ECP_ECR);
+#endif
 	ctrl = inb (SPP_CONTROL);
-
+#if 1
+	unsigned char dsr = inb (SPP_STATUS);
+	unsigned char ecr = inb (ECP_ECR);
+	outb (1, ECP_ECR);
+	outb (0xe0, ECP_ECR);
+	unsigned char confa = inb (ECP_ECR - 2);
+	unsigned char confb = inb (ECP_ECR - 1);
+	fprintf (stderr, "dsr = %02x, dcr = %02x, conf-a = %02x, conf-b = %02x, ecr = %02x\n",
+		dsr, ctrl, confa, confb, ecr);
+	if (confa != 0x94) {
+		fprintf (stderr, "Unknown parallel port controller detected: conf-a = %02x.\n", confa);
+		fprintf (stderr, "Correct value is 0x94 for NetMos PCI 9835 Multi-I/O Controller\n");
+	}
+	outb (1, ECP_ECR);
+	outb (ECR_MODE_EPP, ECP_ECR);
+#endif
 	/* Initialize port */
-	ctrl = SPP_CONTROL_BI | SPP_CONTROL_nRESET;
+	ctrl = SPP_CONTROL_DIRIN | SPP_CONTROL_nRESET;
 	outb (ctrl, SPP_CONTROL);
 
 	/* Set SPP_CONTROL_RESET low for a while */
@@ -558,19 +585,20 @@ void jtag_start (void)
 	outb (ctrl, SPP_CONTROL);
 	jtag_usleep (10000); /* we should hold nInit at least 50 usec. */
 	ctrl |= SPP_CONTROL_nRESET;
-
 	outb (ctrl, SPP_CONTROL);
+
 	/* clear timeout bit if set */
 	status = inb (SPP_STATUS);
 	if (status & EPP_STATUS_TMOUT) {
 		outb (status, SPP_STATUS);
 	}
-	if (! (status & SPP_STATUS_BUSY)) {
+	if (! (status & SPP_STATUS_nBUSY)) {
 		/* SPP BUSY high after EPP port reset */
 		fprintf (stderr, "\nNo device detected.\nCheck power!\n");
 		exit (1);
 	}
 	putcmd (MCIF_START);
+fprintf (stderr, "jtag_start finished\n");
 }
 
 /*
