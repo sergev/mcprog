@@ -270,6 +270,7 @@ void configure_parameter (char *section, char *param, char *value)
 {
 	unsigned word, first, last;
 
+fprintf (stderr, "section=%s, param=%s, value=%s\n", section, param, value);
 	if (! section) {
 		/* Remember default board name. */
 		if (strcasecmp (param, "default") == 0) {
