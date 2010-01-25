@@ -30,8 +30,15 @@ struct _multicore_t {
 	unsigned 	idcode;
 	unsigned	flash_width;
 	unsigned	flash_bytes;
-	unsigned	flash_addr_5555;
-	unsigned	flash_addr_2aaa;
+	unsigned	flash_addr_odd;
+	unsigned	flash_addr_even;
+	unsigned	flash_cmd_aa;
+	unsigned	flash_cmd_55;
+	unsigned	flash_cmd_10;
+	unsigned	flash_cmd_80;
+	unsigned	flash_cmd_90;
+	unsigned	flash_cmd_a0;
+	unsigned	flash_cmd_f0;
 	unsigned	flash_devid_offset;
 	unsigned	flash_base [NFLASH];
 	unsigned	flash_last [NFLASH];
@@ -48,17 +55,26 @@ struct _multicore_t {
 #define ID_39VF800_A		0x27812781
 
 /* Команды flash. */
+#define FLASH_ADDR8_5555	0x5555
+#define FLASH_ADDR8_2AAA	0x2AAA
 #define FLASH_ADDR32_5555	(0x5555 << 2)
 #define FLASH_ADDR32_2AAA	(0x2AAA << 2)
 #define FLASH_ADDR64_5555	(0x5555 << 3)
 #define FLASH_ADDR64_2AAA	(0x2AAA << 3)
-#define FLASH_CMD_AA		0x00AA00AA
-#define FLASH_CMD_55		0x00550055
-#define FLASH_CMD_10		0x00100010
-#define FLASH_CMD_80		0x00800080
-#define FLASH_CMD_90		0x00900090
-#define FLASH_CMD_A0		0x00A000A0
-#define FLASH_CMD_F0		0x00F000F0
+#define FLASH_CMD16_AA		0x00AA00AA
+#define FLASH_CMD8_AA		0xAAAAAAAA
+#define FLASH_CMD16_55		0x00550055
+#define FLASH_CMD8_55		0x55555555
+#define FLASH_CMD16_10		0x00100010	/* Chip erase 2/2 */
+#define FLASH_CMD8_10		0x10101010
+#define FLASH_CMD16_80		0x00800080	/* Chip erase 1/2 */
+#define FLASH_CMD8_80		0x80808080
+#define FLASH_CMD16_90		0x00900090	/* Read ID */
+#define FLASH_CMD8_90		0x90909090
+#define FLASH_CMD16_A0		0x00A000A0	/* Program */
+#define FLASH_CMD8_A0		0xA0A0A0A0
+#define FLASH_CMD16_F0		0x00F000F0	/* Reset */
+#define FLASH_CMD8_F0		0xF0F0F0F0
 
 /* Идентификатор версии процессора. */
 #define MC12_ID			0x20777001
@@ -669,6 +685,7 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 		phys_addr -= 0xA0000000;
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
+fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
 	oncd_write (phys_addr, OnCD_OMAR, 32);
 	oncd_write (data, OnCD_OMDR, 32);
 	oncd_write (0, OnCD_MEM, 0);
@@ -928,26 +945,77 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 	unsigned base;
 
 	base = compute_base (mc, addr);
-	for (count=0; count<10; ++count) {
+	for (count=0; count<16; ++count) {
+#if 0
 		/* Try both 32 and 64 bus width.*/
-		if (count & 1) {
-			mc->flash_width = 64;
-			mc->flash_addr_5555 = FLASH_ADDR64_5555;
-			mc->flash_addr_2aaa = FLASH_ADDR64_2AAA;
-			mc->flash_devid_offset = 8;
-		} else {
+		switch (count & 3) {
+		case 0:
+			/* Two 16-bit flash chips. */
 			mc->flash_width = 32;
-			mc->flash_addr_5555 = FLASH_ADDR32_5555;
-			mc->flash_addr_2aaa = FLASH_ADDR32_2AAA;
+			mc->flash_addr_odd = FLASH_ADDR32_5555;
+			mc->flash_addr_even = FLASH_ADDR32_2AAA;
+			mc->flash_cmd_aa = FLASH_CMD16_AA;
+			mc->flash_cmd_55 = FLASH_CMD16_55;
+			mc->flash_cmd_10 = FLASH_CMD16_10;
+			mc->flash_cmd_80 = FLASH_CMD16_80;
+			mc->flash_cmd_90 = FLASH_CMD16_90;
+			mc->flash_cmd_a0 = FLASH_CMD16_A0;
+			mc->flash_cmd_f0 = FLASH_CMD16_F0;
 			mc->flash_devid_offset = 4;
+			break;
+		case 1:
+			/* Four 16-bit flash chips. */
+			mc->flash_width = 64;
+			mc->flash_addr_odd = FLASH_ADDR64_5555;
+			mc->flash_addr_even = FLASH_ADDR64_2AAA;
+			mc->flash_cmd_aa = FLASH_CMD16_AA;
+			mc->flash_cmd_55 = FLASH_CMD16_55;
+			mc->flash_cmd_10 = FLASH_CMD16_10;
+			mc->flash_cmd_80 = FLASH_CMD16_80;
+			mc->flash_cmd_90 = FLASH_CMD16_90;
+			mc->flash_cmd_a0 = FLASH_CMD16_A0;
+			mc->flash_cmd_f0 = FLASH_CMD16_F0;
+			mc->flash_devid_offset = 8;
+			break;
+		case 2:
+#endif
+			/* Four 8-bit flash chips. */
+			mc->flash_width = 32;
+			mc->flash_addr_odd = FLASH_ADDR32_5555;
+			mc->flash_addr_even = FLASH_ADDR32_2AAA;
+			mc->flash_cmd_aa = FLASH_CMD8_AA;
+			mc->flash_cmd_55 = FLASH_CMD8_55;
+			mc->flash_cmd_10 = FLASH_CMD8_10;
+			mc->flash_cmd_80 = FLASH_CMD8_80;
+			mc->flash_cmd_90 = FLASH_CMD8_90;
+			mc->flash_cmd_a0 = FLASH_CMD8_A0;
+			mc->flash_cmd_f0 = FLASH_CMD8_F0;
+			mc->flash_devid_offset = 4;
+#if 0
+			break;
+		case 3:
+			/* One 8-bit flash chip. */
+			mc->flash_width = 8;
+			mc->flash_addr_odd = FLASH_ADDR8_5555;
+			mc->flash_addr_even = FLASH_ADDR8_2AAA;
+			mc->flash_cmd_aa = FLASH_CMD8_AA;
+			mc->flash_cmd_55 = FLASH_CMD8_55;
+			mc->flash_cmd_10 = FLASH_CMD8_10;
+			mc->flash_cmd_80 = FLASH_CMD8_80;
+			mc->flash_cmd_90 = FLASH_CMD8_90;
+			mc->flash_cmd_a0 = FLASH_CMD8_A0;
+			mc->flash_cmd_f0 = FLASH_CMD8_F0;
+			mc->flash_devid_offset = 1;
+			break;
 		}
+#endif
 		/* Read device code. */
-		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
-		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
-		jtag_write_word (FLASH_CMD_90, base + mc->flash_addr_5555);
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_word (mc->flash_cmd_90, base + mc->flash_addr_odd);
 		*dev = jtag_read_word (base + mc->flash_devid_offset);
-		/* if (debug > 1)
-			fprintf (stderr, "flash id %08X\n", *dev); */
+/*		if (debug > 1)*/
+			fprintf (stderr, "flash id %08X\n", *dev);
 		switch (*dev) {
 		case ID_29LV800_B:
 			strcpy (devname, "29LV800B");
@@ -978,7 +1046,7 @@ success:
 	}
 
 	/* Stop read ID mode. */
-	jtag_write_word (FLASH_CMD_F0, base);
+	jtag_write_word (mc->flash_cmd_f0, base);
 
 	*bytes = mc->flash_bytes;
 	*width = mc->flash_width;
@@ -992,20 +1060,20 @@ int multicore_erase (multicore_t *mc, unsigned addr)
 	/* Chip erase. */
 	base = compute_base (mc, addr);
 	printf ("Erase: %08X", base);
-	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
-	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
-	jtag_write_word (FLASH_CMD_80, base + mc->flash_addr_5555);
-	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
-	jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa);
-	jtag_write_word (FLASH_CMD_10, base + mc->flash_addr_5555);
+	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+	jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+	jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd);
+	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+	jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+	jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd);
 	if (mc->flash_width == 64) {
 		/* Старшая половина 64-разрядной шины. */
-		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555 + 4);
-		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa + 4);
-		jtag_write_word (FLASH_CMD_80, base + mc->flash_addr_5555 + 4);
-		jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555 + 4);
-		jtag_write_word (FLASH_CMD_55, base + mc->flash_addr_2aaa + 4);
-		jtag_write_word (FLASH_CMD_10, base + mc->flash_addr_5555 + 4);
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
+		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
+		jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd + 4);
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
+		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
+		jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd + 4);
 	}
 	for (;;) {
 		fflush (stdout);
@@ -1029,9 +1097,9 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 		/* Старшая половина 64-разрядной шины. */
 		base += 4;
 	}
-	jtag_write_word (FLASH_CMD_AA, base + mc->flash_addr_5555);
-	jtag_write_next (FLASH_CMD_55, base + mc->flash_addr_2aaa);
-	jtag_write_next (FLASH_CMD_A0, base + mc->flash_addr_5555);
+	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+	jtag_write_next (mc->flash_cmd_55, base + mc->flash_addr_even);
+	jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
 	jtag_write_next (word, addr);
 }
 
