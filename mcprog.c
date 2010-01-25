@@ -25,7 +25,7 @@
 #include "conf.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
-#define VERSION		"1.6"
+#define VERSION		"1.7"
 #define BLOCKSZ		1024
 #define DEFAULT_ADDR	0xBFC00000
 
