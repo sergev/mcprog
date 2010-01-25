@@ -318,7 +318,7 @@ void configure_parameter (char *section, char *param, char *value)
 				confname, param);
 			exit (-1);
 		}
-/*		printf ("  %s = %08X-%08X\n", param, first, last);*/
+		printf ("  %s = %08X-%08X\n", param, first, last);
 		multicore_flash_configure (multicore, first, last);
 	} else {
 		fprintf (stderr, "%s: unknown parameter `%s'\n",
