@@ -141,7 +141,7 @@ struct _multicore_t {
 #define	SPP_CONTROL_DIRIN	0x20	/* Enable input mode */
 
 /* ECP Extended Control Register */
-#define ECR_MODE_EPP		0x81	/* Select EPP mode */
+#define ECR_MODE_EPP		0x80	/* Select EPP mode */
 
 /*
  * EPP <-> JTAG Interface Adapter
@@ -172,38 +172,48 @@ struct _multicore_t {
 #define MCIF_STATUS_RTI		0x40	/* Run-Test-Idle */
 #define MCIF_STATUS_PAUSEDR	0x80	/* State machine in Pause-DR state */
 
+extern int debug;
+
 /*
  * Процедуры обращения к портам ввода-вывода.
  */
-#if 0 //def __linux__
-#   include <sys/io.h>
-#else
-#   ifndef inb
-inline unsigned char inb (unsigned port)
+#ifdef __linux__
+#include <sys/io.h>
+#endif
+
+#ifndef inb
+#define inb myinb
+static inline unsigned char inb (unsigned port)
 {
 	unsigned char value;
 
 	__asm__ __volatile__ ("inb %w1, %0" : "=a" (value) : "Nd" (port));
-//if (port == SPP_CONTROL)     printf ("        ctrl");
-//else if (port == SPP_STATUS) printf ("        stat");
-//else if (port == EPP_ADDR)   printf ("        addr");
-//else                         printf ("        %04x", port);
-//printf (" -> %02x\n", value);
+	if (debug) {
+		if (port == SPP_CONTROL)     printf ("        ctrl");
+		else if (port == SPP_STATUS) printf ("        stat");
+		else if (port == EPP_ADDR)   printf ("        addr");
+		else if (port == EPP_DATA)   printf ("        data");
+		else                         printf ("        %04x", port);
+		printf (" -> %02x\n", value);
+	}
 	return value;
 }
-#   endif
+#endif
 
-#   ifndef outb
-inline void outb (unsigned char value, unsigned port)
+#ifndef outb
+#define outb myoutb
+static inline void outb (unsigned char value, unsigned port)
 {
-//printf ("%02x -> ", value);
-//if (port == SPP_CONTROL)     printf ("ctrl\n");
-//else if (port == SPP_STATUS) printf ("stat\n");
-//else if (port == EPP_ADDR)   printf ("addr\n");
-//else                         printf ("%04x\n", port);
+	if (debug) {
+		printf ("%02x -> ", value);
+		if (port == SPP_CONTROL)     printf ("ctrl\n");
+		else if (port == SPP_STATUS) printf ("stat\n");
+		else if (port == EPP_ADDR)   printf ("addr\n");
+		else if (port == EPP_DATA)   printf ("data\n");
+		else                         printf ("%04x\n", port);
+	}
 	__asm__ __volatile__ ("outb %b0, %w1" : : "a" (value), "Nd" (port));
 }
-#   endif
 #endif
 
 /*
@@ -552,13 +562,9 @@ static void exec (unsigned instr)
 void jtag_start (void)
 {
 	unsigned char ctrl, status;
-//fprintf (stderr, "jtag_start called\n");
 
 	/* LPT port probably in ECP mode, try to select EPP mode */
-#if ECP_ECR
-	outb (1, ECP_ECR);
 	outb (ECR_MODE_EPP, ECP_ECR);
-#endif
 	ctrl = inb (SPP_CONTROL);
 #if 0
 	unsigned char dsr = inb (SPP_STATUS);
@@ -573,7 +579,6 @@ void jtag_start (void)
 		fprintf (stderr, "Unknown parallel port controller detected: conf-a = %02x.\n", confa);
 		fprintf (stderr, "Correct value is 0x94 for NetMos PCI 9835 Multi-I/O Controller\n");
 	}
-	outb (1, ECP_ECR);
 	outb (ECR_MODE_EPP, ECP_ECR);
 #endif
 	/* Initialize port */
@@ -598,7 +603,6 @@ void jtag_start (void)
 		exit (1);
 	}
 	putcmd (MCIF_START);
-//fprintf (stderr, "jtag_start finished\n");
 }
 
 /*
@@ -668,7 +672,7 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 	oncd_write (phys_addr, OnCD_OMAR, 32);
 	oncd_write (data, OnCD_OMDR, 32);
 	oncd_write (0, OnCD_MEM, 0);
-	for (wait = 5; wait != 0; wait--) {
+	for (wait = 100000; wait != 0; wait--) {
 		oscr = oncd_read (OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
@@ -716,7 +720,7 @@ unsigned jtag_read_next (unsigned phys_addr)
 		phys_addr -= 0x80000000;
 	oncd_write (phys_addr, OnCD_OMAR, 32);
 	oncd_write (0, OnCD_MEM, 0);
-	for (wait = 5; wait != 0; wait--) {
+	for (wait = 100000; wait != 0; wait--) {
 		oscr = oncd_read (OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
@@ -790,7 +794,8 @@ multicore_t *multicore_open ()
 
 	/* For ARM7TDMI must be 0x1f0f0f0f. */
 	mc->idcode = jtag_get_idcode();
-//fprintf (stderr, "idcode %08X\n", mc->idcode); 
+	if (debug)
+		fprintf (stderr, "idcode %08X\n", mc->idcode);
 	switch (mc->idcode) {
 	default:
 		/* Device not detected. */
@@ -808,10 +813,6 @@ multicore_t *multicore_open ()
 		break;
 	}
 	jtag_reset ();
-
-	/* CSR: fixed mapping, clock multiply by 1. */
-//	jtag_write_word (0x00010011, 0x182F4008);
-
 	return mc;
 }
 
@@ -1046,6 +1047,8 @@ unsigned multicore_read_next (multicore_t *mc, unsigned addr)
 
 void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
 {
+	if (debug)
+		fprintf (stderr, "write word %08x to %08x\n", word, addr);
 	jtag_write_word (word, addr);
 }
 
