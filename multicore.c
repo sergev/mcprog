@@ -44,6 +44,14 @@ struct _multicore_t {
 	unsigned	flash_last [NFLASH];
 };
 
+/*
+ * Регистр конфигурации 3
+ */
+static unsigned cscon3;
+
+#define MC_CSCON3		0x182F100C
+#define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
+
 /* Идентификатор производителя flash. */
 #define ID_ALLIANCE		0x00520052
 #define ID_AMD			0x00010001
@@ -58,12 +66,6 @@ struct _multicore_t {
 #define ID_1636PP2Y		0xc8c8c8c8
 
 /* Команды flash. */
-#define FLASH_ADDR8_5555	0x5555
-#define FLASH_ADDR8_2AAA	0x2AAA
-#define FLASH_ADDR32_5555	(0x5555 << 2)
-#define FLASH_ADDR32_2AAA	(0x2AAA << 2)
-#define FLASH_ADDR64_5555	(0x5555 << 3)
-#define FLASH_ADDR64_2AAA	(0x2AAA << 3)
 #define FLASH_CMD16_AA		0x00AA00AA
 #define FLASH_CMD8_AA		0xAAAAAAAA
 #define FLASH_CMD16_55		0x00550055
@@ -717,6 +719,12 @@ void jtag_write_word (unsigned data, unsigned phys_addr)
 	jtag_write_next (data, phys_addr);
 }
 
+void jtag_write_byte (unsigned data, unsigned phys_addr)
+{
+	jtag_write_word (cscon3 | MC_CSCON3_ADDR (phys_addr), MC_CSCON3);
+	jtag_write_word (data, phys_addr);
+}
+
 /*
  * Чтение слова из памяти.
  */
@@ -954,8 +962,8 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 		case 0:
 			/* Two 16-bit flash chips. */
 			mc->flash_width = 32;
-			mc->flash_addr_odd = FLASH_ADDR32_5555;
-			mc->flash_addr_even = FLASH_ADDR32_2AAA;
+			mc->flash_addr_odd = 0x5555 << 2;
+			mc->flash_addr_even = 0x2AAA << 2;
 			mc->flash_cmd_aa = FLASH_CMD16_AA;
 			mc->flash_cmd_55 = FLASH_CMD16_55;
 			mc->flash_cmd_10 = FLASH_CMD16_10;
@@ -968,8 +976,8 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 		case 1:
 			/* Four 16-bit flash chips. */
 			mc->flash_width = 64;
-			mc->flash_addr_odd = FLASH_ADDR64_5555;
-			mc->flash_addr_even = FLASH_ADDR64_2AAA;
+			mc->flash_addr_odd = 0x5555 << 3;
+			mc->flash_addr_even = 0x2AAA << 3;
 			mc->flash_cmd_aa = FLASH_CMD16_AA;
 			mc->flash_cmd_55 = FLASH_CMD16_55;
 			mc->flash_cmd_10 = FLASH_CMD16_10;
@@ -996,8 +1004,8 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 		case 3:
 			/* One 8-bit flash chip. */
 			mc->flash_width = 8;
-			mc->flash_addr_odd = FLASH_ADDR8_5555;
-			mc->flash_addr_even = FLASH_ADDR8_2AAA;
+			mc->flash_addr_odd = 0x555;
+			mc->flash_addr_even = 0x2AA;
 			mc->flash_cmd_aa = FLASH_CMD8_AA;
 			mc->flash_cmd_55 = FLASH_CMD8_55;
 			mc->flash_cmd_10 = FLASH_CMD8_10;
@@ -1005,18 +1013,33 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			mc->flash_cmd_90 = FLASH_CMD8_90;
 			mc->flash_cmd_a0 = FLASH_CMD8_A0;
 			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 1;
+			mc->flash_devid_offset = 0;
 			break;
 		}
 		/* Read device code. */
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_word (mc->flash_cmd_90, base + mc->flash_addr_odd);
-		*dev = jtag_read_word (base + mc->flash_devid_offset);
-		*mf = jtag_read_word (base);
+		if (mc->flash_width == 8) {
+			/* Byte-wide data bus. */
+			cscon3 = jtag_read_word (MC_CSCON3) & ~MC_CSCON3_ADDR (3);
+			jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+			jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
+			jtag_write_byte (mc->flash_cmd_90, base + mc->flash_addr_odd);
+			*mf = jtag_read_word (base);
+			*dev = (unsigned char) (*mf >> 8);
+			*mf = (unsigned char) *mf;
 
-		/* Stop read ID mode. */
-		jtag_write_word (mc->flash_cmd_f0, base);
+			/* Stop read ID mode. */
+			jtag_write_byte (mc->flash_cmd_f0, base);
+		} else {
+			/* Word-wide data bus. */
+			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+			jtag_write_word (mc->flash_cmd_90, base + mc->flash_addr_odd);
+			*dev = jtag_read_word (base + mc->flash_devid_offset);
+			*mf = jtag_read_word (base);
+
+			/* Stop read ID mode. */
+			jtag_write_word (mc->flash_cmd_f0, base);
+		}
 
 		if (debug > 1)
 			fprintf (stderr, "flash id %08X\n", *dev);
@@ -1041,6 +1064,12 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			strcpy (devname, "1636PP2Y");
 			mc->flash_bytes = 4*2*1024*1024;
 			goto success;
+		case (unsigned char) ID_1636PP2Y:
+			if (mc->flash_width != 8)
+				break;
+			strcpy (devname, "1636PP2Y");
+			mc->flash_bytes = 2*1024*1024;
+			goto success;
 		}
 	}
 	/* printf ("Unknown flash id = %08X\n", *dev); */
@@ -1049,11 +1078,26 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 success:
 	/* Read MFR code. */
 	switch (*mf) {
-	case ID_ALLIANCE: strcpy (mfname, "Alliance");	   break;
-	case ID_AMD:	  strcpy (mfname, "AMD");	   break;
-	case ID_SST:	  strcpy (mfname, "SST");	   break;
-	case ID_MILANDR:  strcpy (mfname, "Milandr");	   break;
-	default:	  sprintf (mfname, "<%08X>", *mf); break;
+	case ID_ALLIANCE:
+		strcpy (mfname, "Alliance");
+		break;
+	case ID_AMD:
+		strcpy (mfname, "AMD");
+		break;
+	case ID_SST:
+		strcpy (mfname, "SST");
+		break;
+	case ID_MILANDR:
+		strcpy (mfname, "Milandr");
+		break;
+	case (unsigned char) ID_MILANDR:
+		if (mc->flash_width != 8)
+			goto unknown_mfr;
+		strcpy (mfname, "Milandr");
+		break;
+	default:
+unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
+		break;
 	}
 
 	*bytes = mc->flash_bytes;
