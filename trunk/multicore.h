@@ -14,5 +14,6 @@ int multicore_erase (multicore_t *mc, unsigned addr);
 void multicore_read_start (multicore_t *mc);
 unsigned multicore_read_next (multicore_t *mc, unsigned addr);
 void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word);
+int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word);
 void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word);
 void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word);
