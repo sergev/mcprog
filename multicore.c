@@ -1112,20 +1112,30 @@ int multicore_erase (multicore_t *mc, unsigned addr)
 	/* Chip erase. */
 	base = compute_base (mc, addr);
 	printf ("Erase: %08X", base);
-	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-	jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd);
-	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-	jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd);
-	if (mc->flash_width == 64) {
-		/* Старшая половина 64-разрядной шины. */
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-		jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd + 4);
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-		jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd + 4);
+	if (mc->flash_width == 8) {
+		/* 8-разрядная шина. */
+		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_byte (mc->flash_cmd_80, base + mc->flash_addr_odd);
+		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_byte (mc->flash_cmd_10, base + mc->flash_addr_odd);
+	} else {
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd);
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd);
+		if (mc->flash_width == 64) {
+			/* Старшая половина 64-разрядной шины. */
+			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
+			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
+			jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd + 4);
+			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
+			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
+			jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd + 4);
+		}
 	}
 	for (;;) {
 		fflush (stdout);
@@ -1145,14 +1155,68 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 	unsigned base;
 
 	base = compute_base (mc, addr);
-	if (mc->flash_width == 64 && (addr & 4)) {
-		/* Старшая половина 64-разрядной шины. */
-		base += 4;
+	if (mc->flash_width == 8) {
+		/* 8-разрядная шина. */
+		/* Unlock bypass. */
+		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_byte (0x20, base + mc->flash_addr_odd);
+
+		/* Program. */
+		jtag_write_byte (mc->flash_cmd_a0, base);
+		jtag_write_byte (word, addr);
+		jtag_write_byte (mc->flash_cmd_a0, base);
+		jtag_write_byte (word >> 8, addr + 1);
+		jtag_write_byte (mc->flash_cmd_a0, base);
+		jtag_write_byte (word >> 16, addr + 2);
+		jtag_write_byte (mc->flash_cmd_a0, base);
+		jtag_write_byte (word >> 24, addr + 3);
+
+		/* Reset unlock bypass. */
+		jtag_write_byte (mc->flash_cmd_90, base);
+		jtag_write_byte (0x00, base);
+	} else {
+		if (mc->flash_width == 64 && (addr & 4)) {
+			/* Старшая половина 64-разрядной шины. */
+			base += 4;
+		}
+		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+		jtag_write_next (mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
+		jtag_write_next (word, addr);
 	}
-	jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-	jtag_write_next (mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
-	jtag_write_next (word, addr);
+}
+
+int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
+{
+	unsigned bad, base;
+	unsigned char byte;
+
+	/* Повторная запись реализована только для 8-битной flash-памяти. */
+	if (mc->flash_width != 8)
+		return 0;
+
+	/* Повтор записи возможен, только если не прописались нули. */
+	jtag_read_start ();
+	bad = jtag_read_next (addr);
+	if ((bad & word) != word)
+		return 0;
+
+	/* Вычисляем нужный байт. */
+	for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
+		addr++;
+		word >>= 8;
+	}
+	byte = word;
+/*fprintf (stderr, "write byte %02x to %08x\n", byte, addr);*/
+
+	base = compute_base (mc, addr);
+	jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
+	jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
+	jtag_write_byte (mc->flash_cmd_a0, base + mc->flash_addr_odd);
+	jtag_write_byte (byte, addr);
+	jtag_usleep (50000);
+	return 1;
 }
 
 void multicore_read_start (multicore_t *mc)

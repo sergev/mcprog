@@ -1,7 +1,6 @@
 /*
  * Программатор flash-памяти для микроконтроллеров Элвис Мультикор.
  *
- * Разработано в ИТМиВТ, 2008-2009.
  * Автор: С.Вакуленко.
  *
  * Этот файл распространяется в надежде, что он окажется полезным, но
@@ -37,6 +36,7 @@ unsigned char memory_data [0x800000];	/* Code - up to 8 Mbytes */
 int memory_len;
 unsigned memory_base;
 unsigned progress_count, progress_step;
+int verify_only;
 int debug;
 multicore_t *multicore;
 char *progname;
@@ -229,11 +229,20 @@ void verify_block (multicore_t *mc, unsigned addr, int len)
 		expected = *(unsigned*) (memory_data+addr+i);
 		if (expected == 0xffffffff)
 			continue;
-		word = multicore_read_next (mc, memory_base + addr + i);
+again:		word = multicore_read_next (mc, memory_base + addr + i);
 		if (debug > 1)
 			printf ("read word %08X at address %08X\n",
 				word, addr + i + memory_base);
-		if (word != *(unsigned*) (memory_data+addr+i)) {
+		if (word != expected) {
+			/* Возможно, не все нули прописались в flash-память.
+			 * Пробуем повторить операцию. */
+			printf ("%%\b");
+			fflush (stdout);
+			if (! verify_only && multicore_flash_rewrite (mc,
+			    memory_base + addr + i, expected)) {
+				multicore_read_start (mc);
+				goto again;
+			}
 			printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
 				addr + i + memory_base, expected, word);
 			exit (1);
@@ -381,7 +390,7 @@ void do_probe ()
 	}
 }
 
-void do_program (int verify_only)
+void do_program ()
 {
 	unsigned addr;
 	unsigned mfcode, devcode, bytes, width;
@@ -441,7 +450,7 @@ void do_program (int verify_only)
 		memory_len * 1000L / mseconds_elapsed (t0));
 }
 
-void do_write (int verify_only)
+void do_write ()
 {
 	unsigned addr;
 	int len;
@@ -548,11 +557,11 @@ void do_read (char *filename)
 
 int main (int argc, char **argv)
 {
-	int ch, verify_only = 0, read_mode = 0, memory_write_mode = 0;
+	int ch, read_mode = 0, memory_write_mode = 0;
 
 	setvbuf (stdout, (char *)NULL, _IOLBF, 0);
 	setvbuf (stderr, (char *)NULL, _IOLBF, 0);
-	printf (PROGNAME ", Version " VERSION ", Copyright (C) 2008-2009 IPMCE\n");
+	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
 
 	while ((ch = getopt(argc, argv, "vDhrwb:")) != -1) {
@@ -609,17 +618,17 @@ usage:		printf ("Probe:\n");
 			memory_len = read_bin (argv[0], memory_data);
 		}
 		if (memory_write_mode)
-			do_write (verify_only);
+			do_write ();
 		else
-			do_program (verify_only);
+			do_program ();
 		break;
 	case 2:
 		memory_base = strtoul (argv[1], 0, 0);
 		memory_len = read_bin (argv[0], memory_data);
 		if (memory_write_mode)
-			do_write (verify_only);
+			do_write ();
 		else
-			do_program (verify_only);
+			do_program ();
 		break;
 	case 3:
 		if (! read_mode)
