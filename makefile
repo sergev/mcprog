@@ -1,11 +1,14 @@
 CC		= gcc
 CFLAGS		= -Wall -g -O
-OBJS		= multicore.o conf.o
+#OBJS		= multicore-lpt.o conf.o
+
+OBJS		= multicore-usb.o conf.o
+LIBS		= -lusb-1.0
 
 all:		mcprog
 
 mcprog:		$(OBJS) mcprog.o
-		$(CC) -o mcprog mcprog.o $(OBJS)
+		$(CC) -o mcprog mcprog.o $(OBJS) $(LIBS)
 clean:
 		rm -f *~ *.o core mcprog mcprog.exe
 
