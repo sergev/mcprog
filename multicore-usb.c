@@ -127,7 +127,15 @@ static unsigned cscon3;
 extern int debug;
 
 #define BULK_WRITE_ENDPOINT	2
+#define BULK_CONTROL_ENDPOINT	4
 #define BULK_READ_ENDPOINT	0x86
+
+#define ADAPTER_ACTIVE_RESET 0x4
+#define ADAPTER_DEACTIVE_RESET 0x5
+
+#define ADAPTER_PLL_12MHZ 0x1
+#define ADAPTER_PLL_24MHZ 0x2
+#define ADAPTER_PLL_48MHZ 0x3
 
 #define HDR_NORM        0x4c    // Заголовок обычного пакета (32-бита)
 #define HDR_NORM_16     0x5c    // Заголовок обычного пакета (16-бит)
@@ -179,6 +187,23 @@ static void bulk_write (const unsigned char *wb, unsigned wlen)
 };
 
 /*
+ * Записать команду в Ctrl Pipe.
+ */
+static void bulk_cmd (unsigned char cmd)
+{
+	int transferred;
+
+	transferred = 0;
+	if (libusb_bulk_transfer (usbdev, BULK_CONTROL_ENDPOINT,
+	    &cmd, 1, &transferred, 1000) != 0 ||
+	    transferred != 1) {
+		fprintf (stderr, "Bulk write failed: command to endpoint %#x.\n",
+			BULK_CONTROL_ENDPOINT);
+		exit (-1);
+	}
+};
+
+/*
  * Записать и прочитать из USB массив данных.
  */
 static unsigned bulk_write_read (const unsigned char *wb,
@@ -218,6 +243,12 @@ void jtag_start (void)
 		fprintf (stderr, "USB-JTAG Multicore adapter not found.d\n");
 		exit (-1);
 	}
+	bulk_cmd (ADAPTER_PLL_12MHZ);
+	jtag_usleep (1000);
+	bulk_cmd (ADAPTER_ACTIVE_RESET);
+	jtag_usleep (1000);
+	bulk_cmd (ADAPTER_DEACTIVE_RESET);
+	jtag_usleep (1000);
 
 	/* Сброс OnCD. */
 	bulk_write_read (pkt_reset, 2, rb, 32);
@@ -372,7 +403,7 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 		oscr = oncd_read (OnCD_OSCR);
 		if (oscr & OSCR_RDYm)
 			break;
-//		jtag_usleep (10);
+		jtag_usleep (10);
 	}
 	if (wait == 0) {
 		fprintf (stderr, "Timeout writing memory, aborted.\n");
@@ -626,6 +657,7 @@ multicore_t *multicore_open ()
 		else
 			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
 				mc->idcode);
+		multicore_close (mc);
 		exit (1);
 	case MC12_ID:
 		mc->cpu_name = "MC12";
