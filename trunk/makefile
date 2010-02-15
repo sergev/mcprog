@@ -1,8 +1,8 @@
 CC		= gcc
-CFLAGS		= -Wall -g -O
-OBJS		= multicore-lpt.o conf.o
+CFLAGS		= -Wall -g #-O
+#OBJS		= multicore-lpt.o conf.o
 
-#OBJS		= multicore-usb.o conf.o
+OBJS		= multicore-usb.o conf.o
 LIBS		= -lusb-1.0
 
 all:		mcprog
