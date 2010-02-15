@@ -42,9 +42,9 @@ struct _multicore_t {
 	unsigned	flash_devid_offset;
 	unsigned	flash_base [NFLASH];
 	unsigned	flash_last [NFLASH];
-
-	struct libusb_device_handle *usbdev;
 };
+
+static struct libusb_device_handle *usbdev;
 
 /*
  * Регистр конфигурации 3
@@ -129,36 +129,286 @@ extern int debug;
 #define BULK_WRITE_ENDPOINT	2
 #define BULK_READ_ENDPOINT	0x86
 
-/**
- * Записать и прочитать из USB массив данных
- * @param wb - буфер для записи
- * @param wlen - длина записываемых данных
- * @param rb - буфер для чтения
- * @param rlen - длина буфера чтения
- * @return - количество прочитанных байт
+#if defined (__CYGWIN32__) || defined (MINGW32)
+/*
+ * Windows.
  */
-static unsigned bulk_write_read (multicore_t *mc, const unsigned char *wb,
+#include <windows.h>
+
+void jtag_usleep (unsigned usec)
+{
+	Sleep (usec / 1000);
+}
+#else
+/*
+ * Unix.
+ */
+void jtag_usleep (unsigned usec)
+{
+	usleep (usec);
+}
+#endif
+
+/*
+ * Записать через USB массив данных.
+ */
+static void bulk_write (const unsigned char *wb, unsigned wlen)
+{
+	int transferred;
+
+	transferred = 0;
+	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
+	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
+	    transferred != wlen) {
+		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %#x.\n",
+			wlen, BULK_WRITE_ENDPOINT);
+		exit (-1);
+	}
+};
+
+/*
+ * Записать и прочитать из USB массив данных.
+ */
+static unsigned bulk_write_read (const unsigned char *wb,
 	unsigned wlen, unsigned char *rb, unsigned rlen)
 {
 	int transferred;
 
 	transferred = 0;
-	if (libusb_bulk_transfer (mc->usbdev, BULK_WRITE_ENDPOINT,
+	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
 	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
 	    transferred != wlen) {
-		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %d.\n",
+		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %#x.\n",
 			wlen, BULK_WRITE_ENDPOINT);
 		exit (-1);
 	}
 	transferred = 0;
-	if (libusb_bulk_transfer (mc->usbdev, BULK_READ_ENDPOINT,
+	if (libusb_bulk_transfer (usbdev, BULK_READ_ENDPOINT,
 	    rb, rlen, &transferred, 1000) != 0) {
-		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %d.\n",
+		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
 		exit (-1);
 	}
 	return transferred;
 };
+
+/*
+ * Приведение адаптера USB в исходное состояние.
+ */
+void jtag_start (void)
+{
+	const unsigned char pkt_reset[8] = { 0x34,0x4d };
+	const unsigned char pkt_getver[8]= { 0xb0,0xff };
+	unsigned char rb[32];
+
+	usbdev = libusb_open_device_with_vid_pid (NULL, 0x0547, 0x1002);
+	if (! usbdev) {
+		fprintf (stderr, "USB-JTAG Multicore adapter not found.d\n");
+		exit (-1);
+	}
+
+	/* Сброс OnCD. */
+	bulk_write_read (pkt_reset, 2, rb, 32);
+
+	/* Получить версию прошивки. */
+	if (bulk_write_read (pkt_getver, 2, rb, 8) != 2) {
+		fprintf (stderr, "Failed to get adapter version.\n");
+		exit (-1);
+	}
+	fprintf (stderr, "USB adapter version: %02x\n", *(unsigned short*) rb >> 8);
+}
+
+/*
+ * Перевод кристалла в режим отладки путём манипуляций
+ * регистрами данных JTAG.
+ */
+void jtag_reset ()
+{
+	const unsigned char pkt_debug_request_sysrst[8] = { 0xb8,0x44 };
+	const unsigned char pkt_debug_enable[8] = { 0xbc,0x55 };
+	unsigned char rb[8];
+	unsigned retry;
+
+	/* Запрос Debug request, сброс процессора. */
+	for (retry=0; ; retry++) {
+		if (bulk_write_read (pkt_debug_request_sysrst, 2, rb, 8) != 2) {
+			fprintf (stderr, "Failed debug request.\n");
+			exit (-1);
+		}
+		if (rb[0] == 0x45)
+			break;
+		if (retry > 100) {
+			fprintf (stderr, "No reply from debug request.\n");
+			exit (-1);
+		}
+	}
+
+	/* Разрешить отладочный режим. */
+	for (retry=0; ; retry++) {
+		if (bulk_write_read (pkt_debug_enable, 2, rb, 8) != 2) {
+			fprintf (stderr, "Failed debug enable.\n");
+			exit (-1);
+		}
+		if (rb[0] == 0x55)
+			break;
+		if (retry > 100) {
+			fprintf (stderr, "No reply from debug request.\n");
+			exit (-1);
+		}
+	}
+}
+
+/*
+ * Чтение регистра IDCODE.
+ */
+unsigned jtag_get_idcode (void)
+{
+	const unsigned char pkt_idcode[8] = { 0x4b, 0x03 };
+	unsigned char rb [8];
+	unsigned idcode;
+
+	if (bulk_write_read (pkt_idcode, 6, rb, 8) != 4) {
+		fprintf (stderr, "Failed to get IDCODE.\n");
+		exit (-1);
+	}
+	idcode = *(unsigned*) rb;
+	return idcode;
+}
+
+/*
+ * Чтение 32-битного регистра OnCD.
+ */
+static unsigned oncd_read (int reg)
+{
+	static unsigned char pkt[8] = { 0x4c };
+	unsigned val = 0;
+
+	pkt [1] = reg | 0x40;
+	if (bulk_write_read (pkt, 6, (unsigned char*) &val, 4) != 4) {
+		fprintf (stderr, "Failed to read register.\n");
+		exit (-1);
+	}
+//fprintf (stderr, "OnCD read %d -> %08x\n", reg, val);
+	return val;
+}
+
+/*
+ * Запись регистра OnCD.
+ */
+static void oncd_write (unsigned val, int reg)
+{
+	static unsigned char pkt[8] = { 0x4c };
+
+//fprintf (stderr, "OnCD write %d := %08x\n", reg, val);
+	pkt [1] = reg;
+	memcpy (pkt+2, &val, 4);
+	bulk_write (pkt, 6);
+}
+
+/*
+ * Выполнение одной инструкции MIPS32.
+ */
+static void exec (unsigned instr)
+{
+	/* Restore PCfetch to right address or
+	 * we can go in exception. */
+	oncd_write (0xBFC00000, OnCD_PCfetch);
+
+	/* Supply instruction to pipeline and do step */
+	oncd_write (instr, OnCD_IRdec);
+	oncd_write (0, OnCD_EXIT | 0xc0);
+}
+
+/*
+ * Запись слова в память.
+ */
+void jtag_write_next (unsigned data, unsigned phys_addr)
+{
+	unsigned wait, oscr;
+
+	if (phys_addr >= 0xA0000000)
+		phys_addr -= 0xA0000000;
+	else if (phys_addr >= 0x80000000)
+		phys_addr -= 0x80000000;
+//fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+	oncd_write (phys_addr, OnCD_OMAR);
+	oncd_write (data, OnCD_OMDR);
+	oncd_write (0, OnCD_MEM);
+	for (wait = 100000; wait != 0; wait--) {
+		oscr = oncd_read (OnCD_OSCR);
+		if (oscr & OSCR_RDYm)
+			break;
+		jtag_usleep (10);
+	}
+	if (wait == 0) {
+		fprintf (stderr, "Timeout writing memory, aborted.\n");
+		exit (1);
+	}
+}
+
+void jtag_write_word (unsigned data, unsigned phys_addr)
+{
+	unsigned oscr;
+
+	/* Allow memory access */
+	oscr = oncd_read (OnCD_OSCR);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	oncd_write (oscr, OnCD_OSCR);
+
+	jtag_write_next (data, phys_addr);
+}
+
+void jtag_write_byte (unsigned data, unsigned phys_addr)
+{
+	jtag_write_word (cscon3 | MC_CSCON3_ADDR (phys_addr), MC_CSCON3);
+	jtag_write_word (data, phys_addr);
+}
+
+/*
+ * Чтение слова из памяти.
+ */
+void jtag_read_start ()
+{
+	unsigned oscr;
+
+	/* Allow memory access */
+	oscr = oncd_read (OnCD_OSCR);
+	oscr |= OSCR_SlctMEM | OSCR_RO;
+	oncd_write (oscr, OnCD_OSCR);
+}
+
+unsigned jtag_read_next (unsigned phys_addr)
+{
+	unsigned wait, oscr, data;
+
+	if (phys_addr >= 0xA0000000)
+		phys_addr -= 0xA0000000;
+	else if (phys_addr >= 0x80000000)
+		phys_addr -= 0x80000000;
+//fprintf (stderr, "read %08x ", phys_addr); fflush (stderr);
+	oncd_write (phys_addr, OnCD_OMAR);
+	oncd_write (0, OnCD_MEM);
+	for (wait = 100000; wait != 0; wait--) {
+		oscr = oncd_read (OnCD_OSCR);
+		if (oscr & OSCR_RDYm)
+			break;
+		jtag_usleep (10);
+	}
+	if (wait == 0) {
+		fprintf (stderr, "Timeout reading memory, aborted.\n");
+		exit (1);
+	}
+	data = oncd_read (OnCD_OMDR);
+//fprintf (stderr, "-> %08x\n", data);
+	return data;
+}
+
+unsigned jtag_read_word (unsigned phys_addr)
+{
+	jtag_read_start ();
+	return jtag_read_next (phys_addr);
+}
 
 /*
  * Установка доступа к аппаратным портам ввода-вывода.
@@ -177,8 +427,6 @@ void multicore_init ()
 multicore_t *multicore_open ()
 {
 	multicore_t *mc;
-	const unsigned char pkt_idcode[8] = { 0x4b, 0x03 };
-	unsigned char rb [8];
 
 	mc = calloc (1, sizeof (multicore_t));
 	if (! mc) {
@@ -187,17 +435,10 @@ multicore_t *multicore_open ()
 	}
 	mc->cpu_name = "Unknown";
 
-	mc->usbdev = libusb_open_device_with_vid_pid (NULL, 0x0547, 0x1002);
-	if (! mc->usbdev) {
-		fprintf (stderr, "USB-JTAG Multicore adapter not found.d\n");
-		exit (-1);
-	}
+	jtag_start ();
+
 	/* For ARM7TDMI must be 0x1f0f0f0f. */
-	if (bulk_write_read (mc, pkt_idcode, 6, rb, 8) != 4) {
-		fprintf (stderr, "Failed to get IDCODE.\n");
-		exit (-1);
-	}
-	mc->idcode = *(unsigned*) rb;
+	mc->idcode = jtag_get_idcode();
 	if (debug)
 		fprintf (stderr, "idcode %08X\n", mc->idcode);
 	switch (mc->idcode) {
@@ -216,9 +457,7 @@ multicore_t *multicore_open ()
 		mc->cpu_name = "MC12r1";
 		break;
 	}
-#if 0
 	jtag_reset ();
-#endif
 	return mc;
 }
 
@@ -227,6 +466,32 @@ multicore_t *multicore_open ()
  */
 void multicore_close (multicore_t *mc)
 {
+	unsigned oscr;
+        int i;
+
+	/* Clear processor state */
+	for (i=1; i<32; i++) {
+		/* add $i, $0, $0 */
+		exec (0x20 | (i << 11));
+	}
+	/* Clear pipeline */
+	for (i=0; i<3; i++) {
+		/* add $0, $0, $0 */
+		exec (0x20);
+	}
+
+	/* Setup IRdec and PCfetch */
+	oncd_write (0xBFC00000, OnCD_PCfetch);
+	oncd_write (0x20, OnCD_IRdec);
+
+	/* Flush CPU pipeline at exit */
+	oscr = oncd_read (OnCD_OSCR);
+	oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
+	oscr |= OSCR_MPE;
+	oncd_write (oscr, OnCD_OSCR);
+
+	/* Exit */
+	oncd_write (0, OnCD_EXIT | 0x60);
 }
 
 /*
@@ -304,7 +569,6 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 	unsigned *mf, unsigned *dev, char *mfname, char *devname,
 	unsigned *bytes, unsigned *width)
 {
-#if 0
 	int count;
 	unsigned base;
 
@@ -425,10 +689,8 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			goto success;
 		}
 	}
-#endif
 	/* printf ("Unknown flash id = %08X\n", *dev); */
 	return 0;
-#if 0
 success:
 	/* Read MFR code. */
 	switch (*mf) {
@@ -457,12 +719,10 @@ unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
 	*bytes = mc->flash_bytes;
 	*width = mc->flash_width;
 	return 1;
-#endif
 }
 
 int multicore_erase (multicore_t *mc, unsigned addr)
 {
-#if 0
 	unsigned word, base;
 
 	/* Chip erase. */
@@ -503,13 +763,11 @@ int multicore_erase (multicore_t *mc, unsigned addr)
 	}
 	jtag_usleep (250000);
 	printf (" done\n");
-#endif
 	return 1;
 }
 
 void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 {
-#if 0
 	unsigned base;
 
 	base = compute_base (mc, addr);
@@ -543,12 +801,10 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 		jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
 		jtag_write_next (word, addr);
 	}
-#endif
 }
 
 int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 {
-#if 0
 	unsigned bad, base;
 	unsigned char byte;
 
@@ -576,38 +832,27 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 	jtag_write_byte (mc->flash_cmd_a0, base + mc->flash_addr_odd);
 	jtag_write_byte (byte, addr);
 	jtag_usleep (50000);
-#endif
 	return 1;
 }
 
 void multicore_read_start (multicore_t *mc)
 {
-#if 0
 	jtag_read_start ();
-#endif
 }
 
 unsigned multicore_read_next (multicore_t *mc, unsigned addr)
 {
-#if 0
 	return jtag_read_next (addr);
-#else
-	return 0;
-#endif
 }
 
 void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
 {
-#if 0
 	if (debug)
 		fprintf (stderr, "write word %08x to %08x\n", word, addr);
 	jtag_write_word (word, addr);
-#endif
 }
 
 void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word)
 {
-#if 0
 	jtag_write_next (word, addr);
-#endif
 }
