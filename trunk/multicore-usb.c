@@ -129,6 +129,18 @@ extern int debug;
 #define BULK_WRITE_ENDPOINT	2
 #define BULK_READ_ENDPOINT	0x86
 
+#define HDR_NORM        0x4c    // Заголовок обычного пакета (32-бита)
+#define HDR_NORM_16     0x5c    // Заголовок обычного пакета (16-бит)
+#define HDR_NORM_12     0x6c    // Заголовок обычного пакета (12-бит)
+
+#define HDR_WR          0x45    // Заголовок неблочной записи
+#define HDR_RD          0x46    // Заголовок неблочного чтения
+#define HDR_END         0x47    // Терминирующий (для неблочных операций) заголовок
+
+#define HDR_BLKWR       0x4d    // Заголовок блочной записи
+#define HDR_BLKRD       0x4e    // Заголовок блочного чтения
+#define HDR_BLKEND      0x4f    // Терминирующий (для блочных операций) заголовок
+
 #if defined (__CYGWIN32__) || defined (MINGW32)
 /*
  * Windows.
@@ -280,7 +292,7 @@ unsigned jtag_get_idcode (void)
  */
 static unsigned oncd_read (int reg)
 {
-	static unsigned char pkt[8] = { 0x4c };
+	static unsigned char pkt[8] = { HDR_NORM };
 	unsigned val = 0;
 
 	pkt [1] = reg | 0x40;
@@ -297,7 +309,7 @@ static unsigned oncd_read (int reg)
  */
 static void oncd_write (unsigned val, int reg)
 {
-	static unsigned char pkt[8] = { 0x4c };
+	static unsigned char pkt[8] = { HDR_NORM };
 
 //fprintf (stderr, "OnCD write %d := %08x\n", reg, val);
 	pkt [1] = reg;
@@ -331,14 +343,36 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
 //fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+#if 1
 	oncd_write (phys_addr, OnCD_OMAR);
 	oncd_write (data, OnCD_OMDR);
 	oncd_write (0, OnCD_MEM);
+#else
+	static unsigned char pkt[6*3];
+	unsigned char *ptr = pkt;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMAR;
+	*(unsigned*) ptr = phys_addr;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMDR;
+	*(unsigned*) ptr = data;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_MEM;
+	*(unsigned*) ptr = 0;
+	*ptr += 4;
+
+	bulk_write (pkt, ptr - pkt);
+#endif
 	for (wait = 100000; wait != 0; wait--) {
 		oscr = oncd_read (OnCD_OSCR);
 		if (oscr & OSCR_RDYm)
 			break;
-		jtag_usleep (10);
+//		jtag_usleep (10);
 	}
 	if (wait == 0) {
 		fprintf (stderr, "Timeout writing memory, aborted.\n");
@@ -363,6 +397,149 @@ void jtag_write_byte (unsigned data, unsigned phys_addr)
 {
 	jtag_write_word (cscon3 | MC_CSCON3_ADDR (phys_addr), MC_CSCON3);
 	jtag_write_word (data, phys_addr);
+}
+
+void jtag_write_quad (unsigned data1, unsigned addr1,
+	unsigned data2, unsigned addr2,
+	unsigned data3, unsigned addr3,
+	unsigned data4, unsigned addr4)
+{
+#if 0
+	static unsigned char pkt[48];
+	unsigned char *ptr = pkt;
+
+	*ptr++ = HDR_BLKWR;
+	*ptr++ = OnCD_OMAR;
+	memcpy (ptr, &addr1, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKEND;
+	*ptr++ = OnCD_OMDR;
+	memcpy (ptr, &data1, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKWR;
+	*ptr++ = OnCD_OMAR;
+	memcpy (ptr, &addr2, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKEND;
+	*ptr++ = OnCD_OMDR;
+	memcpy (ptr, &data2, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKWR;
+	*ptr++ = OnCD_OMAR;
+	memcpy (ptr, &addr3, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKEND;
+	*ptr++ = OnCD_OMDR;
+	memcpy (ptr, &data3, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKWR;
+	*ptr++ = OnCD_OMAR;
+	memcpy (ptr, &addr4, 4);
+	*ptr += 4;
+
+	*ptr++ = HDR_BLKEND;
+	*ptr++ = OnCD_OMDR;
+	memcpy (ptr, &data4, 4);
+	*ptr += 4;
+
+	bulk_write (pkt, ptr - pkt);
+#endif
+#if 0
+	static unsigned char pkt[6*3*4];
+	unsigned char *ptr = pkt;
+
+	/* Allow memory access */
+	unsigned oscr = oncd_read (OnCD_OSCR);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	oncd_write (oscr, OnCD_OSCR);
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMAR;
+	*(unsigned*) ptr = addr1;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMDR;
+	*(unsigned*) ptr = data1;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_MEM;
+	*(unsigned*) ptr = 0;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMAR;
+	*(unsigned*) ptr = addr2;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMDR;
+	*(unsigned*) ptr = data2;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_MEM;
+	*(unsigned*) ptr = 0;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMAR;
+	*(unsigned*) ptr = addr3;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMDR;
+	*(unsigned*) ptr = data3;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_MEM;
+	*(unsigned*) ptr = 0;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMAR;
+	*(unsigned*) ptr = addr4;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_OMDR;
+	*(unsigned*) ptr = data4;
+	*ptr += 4;
+
+	*ptr++ = HDR_NORM;
+	*ptr++ = OnCD_MEM;
+	*(unsigned*) ptr = 0;
+	*ptr += 4;
+
+	bulk_write (pkt, ptr - pkt);
+
+	unsigned wait;
+	for (wait = 100000; wait != 0; wait--) {
+		oscr = oncd_read (OnCD_OSCR);
+		if (oscr & OSCR_RDYm)
+			break;
+		jtag_usleep (10);
+	}
+	if (wait == 0) {
+		fprintf (stderr, "Timeout writing memory, aborted.\n");
+		exit (1);
+	}
+#endif
+#if 1
+	jtag_write_word (data1, addr1);
+	jtag_write_next (data2, addr2);
+	jtag_write_next (data3, addr3);
+	jtag_write_next (data4, addr4);
+#endif
 }
 
 /*
@@ -771,6 +948,11 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 	unsigned base;
 
 	base = compute_base (mc, addr);
+	if (base >= 0xA0000000)
+		base -= 0xA0000000;
+	else if (base >= 0x80000000)
+		base -= 0x80000000;
+
 	if (mc->flash_width == 8) {
 		/* 8-разрядная шина. */
 		/* Unlock bypass. */
@@ -796,10 +978,10 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 			/* Старшая половина 64-разрядной шины. */
 			base += 4;
 		}
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_next (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
-		jtag_write_next (word, addr);
+		jtag_write_quad (mc->flash_cmd_aa, base + mc->flash_addr_odd,
+				mc->flash_cmd_55, base + mc->flash_addr_even,
+				mc->flash_cmd_a0, base + mc->flash_addr_odd,
+				word, addr);
 	}
 }
 
