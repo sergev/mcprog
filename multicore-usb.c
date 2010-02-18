@@ -176,13 +176,20 @@ static void bulk_write (const unsigned char *wb, unsigned wlen)
 {
 	int transferred;
 
+	if (debug) {
+		unsigned i;
+		fprintf (stderr, "Bulk write: %02x", *wb);
+		for (i=1; i<wlen; ++i)
+			fprintf (stderr, "-%02x", wb[i]);
+		fprintf (stderr, "\n");
+	}
 	transferred = 0;
 	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
 	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
 	    transferred != wlen) {
 		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %#x.\n",
 			wlen, BULK_WRITE_ENDPOINT);
-		exit (-1);
+		_exit (-1);
 	}
 };
 
@@ -193,15 +200,46 @@ static void bulk_cmd (unsigned char cmd)
 {
 	int transferred;
 
+	if (debug)
+		fprintf (stderr, "Bulk cmd: %02x\n", cmd);
 	transferred = 0;
 	if (libusb_bulk_transfer (usbdev, BULK_CONTROL_ENDPOINT,
 	    &cmd, 1, &transferred, 1000) != 0 ||
 	    transferred != 1) {
-		fprintf (stderr, "Bulk write failed: command to endpoint %#x.\n",
+		fprintf (stderr, "Bulk cmd failed: command to endpoint %#x.\n",
 			BULK_CONTROL_ENDPOINT);
-		exit (-1);
+		_exit (-1);
 	}
 };
+
+/*
+ * Прочитать из USB массив данных.
+ */
+#if 0
+static unsigned bulk_read (unsigned char *rb, unsigned rlen)
+{
+	int transferred;
+
+	transferred = 0;
+	if (libusb_bulk_transfer (usbdev, BULK_READ_ENDPOINT,
+	    rb, rlen, &transferred, 1000) != 0) {
+		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
+			transferred, rlen, BULK_READ_ENDPOINT);
+		_exit (-1);
+	}
+	if (debug) {
+		if (transferred) {
+			unsigned i;
+			fprintf (stderr, "Bulk read: %02x", *rb);
+			for (i=1; i<transferred; ++i)
+				fprintf (stderr, "-%02x", rb[i]);
+			fprintf (stderr, "\n");
+		} else
+			fprintf (stderr, "Bulk read: empty\n");
+	}
+	return transferred;
+}
+#endif
 
 /*
  * Записать и прочитать из USB массив данных.
@@ -211,23 +249,41 @@ static unsigned bulk_write_read (const unsigned char *wb,
 {
 	int transferred;
 
+	if (debug) {
+		unsigned i;
+		fprintf (stderr, "Bulk write-read: %02x", *wb);
+		for (i=1; i<wlen; ++i)
+			fprintf (stderr, "-%02x", wb[i]);
+		fprintf (stderr, " --> ");
+		fflush (stderr);
+	}
 	transferred = 0;
 	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
 	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
 	    transferred != wlen) {
-		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %#x.\n",
+		fprintf (stderr, "Bulk write(-read) failed: %d bytes to endpoint %#x.\n",
 			wlen, BULK_WRITE_ENDPOINT);
-		exit (-1);
+		_exit (-1);
 	}
 	transferred = 0;
 	if (libusb_bulk_transfer (usbdev, BULK_READ_ENDPOINT,
 	    rb, rlen, &transferred, 1000) != 0) {
-		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
+		fprintf (stderr, "Bulk (write-)read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
-		exit (-1);
+		_exit (-1);
+	}
+	if (debug) {
+		if (transferred) {
+			unsigned i;
+			fprintf (stderr, "%02x", *rb);
+			for (i=1; i<transferred; ++i)
+				fprintf (stderr, "-%02x", rb[i]);
+			fprintf (stderr, "\n");
+		} else
+			fprintf (stderr, "empty\n");
 	}
 	return transferred;
-};
+}
 
 /*
  * Приведение адаптера USB в исходное состояние.
@@ -434,12 +490,13 @@ void jtag_write_2words (unsigned data1, unsigned addr1,
 	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data2);
 #endif
 	bulk_write (pkt, ptr - pkt);
-
+#if 1
 	unsigned oscr = oncd_read (OnCD_OSCR);
 	if (! (oscr & OSCR_RDYm)) {
 		fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
+#endif
 }
 
 void jtag_write_4words (unsigned data1, unsigned addr1,
@@ -476,12 +533,13 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data4);
 #endif
 	bulk_write (pkt, ptr - pkt);
-
+#if 1
 	unsigned oscr = oncd_read (OnCD_OSCR);
 	if (! (oscr & OSCR_RDYm)) {
 		fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
+#endif
 }
 
 void jtag_write_byte (unsigned data, unsigned addr)
@@ -542,6 +600,45 @@ unsigned jtag_read_word (unsigned phys_addr)
 {
 	jtag_read_start ();
 	return jtag_read_next (phys_addr);
+}
+
+void jtag_read_8words (unsigned addr, unsigned *data)
+{
+	static unsigned char pkt[6*9];
+	unsigned char *ptr = pkt;
+#if 1
+	/* Блочное чтение. */
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMAR, addr);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR | 0x40, 0);
+#else
+	/* Неблочное чтение. */
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMAR, addr);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR | 0x40, 0);
+#endif
+	if (bulk_write_read (pkt, ptr - pkt,
+	    (unsigned char*) data, 4*8) != 4*8) {
+		fprintf (stderr, "Empty data reading memory, aborted.\n");
+		exit (1);
+	}
+	unsigned oscr = oncd_read (OnCD_OSCR);
+	if (! (oscr & OSCR_RDYm)) {
+		fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
+		exit (1);
+	}
 }
 
 /*
@@ -676,6 +773,11 @@ char *multicore_cpu_name (multicore_t *mc)
 unsigned multicore_idcode (multicore_t *mc)
 {
 	return mc->idcode;
+}
+
+unsigned multicore_flash_width (multicore_t *mc)
+{
+	return mc->flash_width;
 }
 
 /*
@@ -938,17 +1040,14 @@ void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
 	}
 }
 
+/*
+ * Повторная запись реализована только для 8-битной flash-памяти.
+ */
 int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 {
 	unsigned bad, base;
 	unsigned char byte;
 
-	/* Повторная запись реализована только для 8-битной flash-памяти. */
-	if (mc->flash_width != 8) {
-		fprintf (stderr, "multicore: cannot rewrite %d-bit flash memory\n",
-			mc->flash_width);
-		exit (1);
-	}
 	if (addr >= 0xA0000000)
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
@@ -969,14 +1068,14 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 		word >>= 8;
 	}
 	byte = word;
-/*fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);*/
+	/*fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);*/
 
 	base = compute_base (mc, addr);
-	jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-	jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_byte (mc->flash_cmd_a0, base + mc->flash_addr_odd);
-	jtag_write_byte (byte, addr);
-	jtag_usleep (50000);
+	jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
+			   mc->flash_cmd_55, base + mc->flash_addr_even);
+	jtag_write_2bytes (mc->flash_cmd_a0, base + mc->flash_addr_odd,
+			   byte, addr);
+//	jtag_usleep (10000);
 	return 1;
 }
 
@@ -988,6 +1087,30 @@ void multicore_read_start (multicore_t *mc)
 unsigned multicore_read_next (multicore_t *mc, unsigned addr)
 {
 	return jtag_read_next (addr);
+}
+
+void multicore_read_nwords (multicore_t *mc, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+//	oncd_write (0, OnCD_OSCR);
+	while (nwords >= 8) {
+		jtag_read_8words (addr, data);
+		data += 8;
+		addr += 8*4;
+		nwords -= 8;
+	}
+	if (nwords == 0)
+		return;
+	jtag_read_start ();
+	while (nwords > 0) {
+		*data++ = jtag_read_next (addr);
+		addr += 4;
+		nwords--;
+	}
 }
 
 void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
