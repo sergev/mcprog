@@ -227,8 +227,8 @@ void verify_block (multicore_t *mc, unsigned addr, int len)
 	multicore_read_start (mc);
 	for (i=0; i<len; i+=4) {
 		expected = *(unsigned*) (memory_data+addr+i);
-		if (expected == 0xffffffff)
-			continue;
+//		if (expected == 0xffffffff)
+//			continue;
 again:		word = multicore_read_next (mc, memory_base + addr + i);
 		if (debug > 1)
 			printf ("read word %08X at address %08X\n",
@@ -238,6 +238,8 @@ again:		word = multicore_read_next (mc, memory_base + addr + i);
 			 * Пробуем повторить операцию. */
 			printf ("%%\b");
 			fflush (stdout);
+/* printf ("\nerror at address %08X: file=%08X, mem=%08X ",
+addr + i + memory_base, expected, word); fflush (stdout); */
 			if (! verify_only && multicore_flash_rewrite (mc,
 			    memory_base + addr + i, expected)) {
 				multicore_read_start (mc);
