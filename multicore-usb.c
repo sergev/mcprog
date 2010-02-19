@@ -215,7 +215,6 @@ static void bulk_cmd (unsigned char cmd)
 /*
  * Прочитать из USB массив данных.
  */
-#if 0
 static unsigned bulk_read (unsigned char *rb, unsigned rlen)
 {
 	int transferred;
@@ -239,7 +238,6 @@ static unsigned bulk_read (unsigned char *rb, unsigned rlen)
 	}
 	return transferred;
 }
-#endif
 
 /*
  * Записать и прочитать из USB массив данных.
@@ -474,8 +472,8 @@ void jtag_write_word (unsigned data, unsigned phys_addr)
 void jtag_write_2words (unsigned data1, unsigned addr1,
 	unsigned data2, unsigned addr2)
 {
-	static unsigned char pkt[6*2*2];
-	unsigned char *ptr = pkt;
+	unsigned char pkt [6*2*2 + 6], *ptr = pkt;
+	unsigned oscr;
 #if 1
 	/* Блочная запись. */
 	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr1);
@@ -489,14 +487,16 @@ void jtag_write_2words (unsigned data1, unsigned addr1,
 	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr2);
 	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data2);
 #endif
-	bulk_write (pkt, ptr - pkt);
-#if 1
-	unsigned oscr = oncd_read (OnCD_OSCR);
+	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to write 4 words.\n");
+		exit (-1);
+	}
 	if (! (oscr & OSCR_RDYm)) {
-		fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n", oscr);
+		fprintf (stderr, "Timeout writing 2 words, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-#endif
 }
 
 void jtag_write_4words (unsigned data1, unsigned addr1,
@@ -504,8 +504,8 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 	unsigned data3, unsigned addr3,
 	unsigned data4, unsigned addr4)
 {
-	static unsigned char pkt[6*2*4];
-	unsigned char *ptr = pkt;
+	unsigned char pkt [6*2*4 + 6], *ptr = pkt;
+	unsigned oscr;
 
 //fprintf (stderr, "write %08x to %08x\n", data1, addr1);
 //fprintf (stderr, "      %08x to %08x\n", data2, addr2);
@@ -532,14 +532,16 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr4);
 	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data4);
 #endif
-	bulk_write (pkt, ptr - pkt);
-#if 1
-	unsigned oscr = oncd_read (OnCD_OSCR);
+	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to write 4 words.\n");
+		exit (-1);
+	}
 	if (! (oscr & OSCR_RDYm)) {
-		fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n", oscr);
+		fprintf (stderr, "Timeout writing 4 words, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-#endif
 }
 
 void jtag_write_byte (unsigned data, unsigned addr)
@@ -604,8 +606,8 @@ unsigned jtag_read_word (unsigned phys_addr)
 
 void jtag_read_8words (unsigned addr, unsigned *data)
 {
-	static unsigned char pkt[6*9];
-	unsigned char *ptr = pkt;
+	unsigned char pkt [6*9 + 6], *ptr = pkt;
+	unsigned oscr;
 #if 1
 	/* Блочное чтение. */
 	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMAR, addr);
@@ -629,12 +631,17 @@ void jtag_read_8words (unsigned addr, unsigned *data)
 	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
 	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR | 0x40, 0);
 #endif
+	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+
 	if (bulk_write_read (pkt, ptr - pkt,
 	    (unsigned char*) data, 4*8) != 4*8) {
 		fprintf (stderr, "Empty data reading memory, aborted.\n");
 		exit (1);
 	}
-	unsigned oscr = oncd_read (OnCD_OSCR);
+	if (bulk_read ((unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to write 4 words.\n");
+		exit (-1);
+	}
 	if (! (oscr & OSCR_RDYm)) {
 		fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
 		exit (1);
