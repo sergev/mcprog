@@ -87,24 +87,38 @@ static unsigned cscon3;
 #define MC12_ID			0x20777001
 #define MC12REV1_ID		0x30777001
 
-/* OnCD Register Map */
-#define	OnCD_OSCR	0x0	/* Control & State Register */
-#define	OnCD_OMBC	0x1	/* BreakPoint Match Counter */
-#define	OnCD_OMLR0	0x2	/* Address Boundary Register 0 */
-#define	OnCD_OMLR1	0x3	/* Address Boundary Register 1 */
-#define	OnCD_OBCR	0x4	/* BreakPoint Control Register */
-#define	OnCD_IRdec	0x5	/* Last CPU Instruction, can be supplied. */
-#define	OnCD_OTC	0x6	/* Trace Counter */
-#define	OnCD_PCdec	0x7	/* Decoding Instruction(IRdec) Address */
-#define	OnCD_PCexec	0x8	/* Executing Instruction Address */
-#define	OnCD_PCmem	0x9	/* Memory Access Instruction Address */
-#define	OnCD_PCfetch	0xA	/* PC (Fetching Instruction Address) */
-#define	OnCD_OMAR	0xB	/* Memory Address Register */
-#define	OnCD_OMDR	0xC	/* Memory Data Register */
-#define	OnCD_MEM	0xD	/* Memory Access Register (EnMEM) */
-#define	OnCD_PCwb	0xE	/* Address of instruction at write back stage */
-#define	OnCD_MEMACK	0xE	/* Memory Operation Acknowlege (EnXX) */
-#define	OnCD_EXIT	0xF	/* Exit From Debug Mode (EnGO) */
+/* Регистр IRЖ команды JTAG */
+#define IR_EXTEST		0x00
+#define IR_SAMPLE_PRELOAD	0x11
+#define IR_IDCODE		0x33
+#define IR_DEBUG_REQUEST	0x44
+#define IR_DEBUG_ENABLE		0x55
+#define IR_BYPASS		0xff
+
+/* Биты регистра IRd */
+#define	IRd_RUN		0x20	/* 0 - step mode, 1 - run continuosly */
+#define	IRd_READ	0x40	/* 0 - write, 1 - read registers */
+#define	IRd_FLUSH_PIPE	0x40	/* for EnGO: instruction pipe changed */
+#define	IRd_STEP_1CLK	0x80	/* for step mode: run for 1 clock only */
+
+/* Младшие биты IRd: номер регистра OnCD */
+#define	OnCD_OSCR	0x00	/* Control & State Register */
+#define	OnCD_OMBC	0x01	/* BreakPoint Match Counter */
+#define	OnCD_OMLR0	0x02	/* Address Boundary Register 0 */
+#define	OnCD_OMLR1	0x03	/* Address Boundary Register 1 */
+#define	OnCD_OBCR	0x04	/* BreakPoint Control Register */
+#define	OnCD_IRdec	0x05	/* Last CPU Instruction, can be supplied. */
+#define	OnCD_OTC	0x06	/* Trace Counter */
+#define	OnCD_PCdec	0x07	/* Decoding Instruction(IRdec) Address */
+#define	OnCD_PCexec	0x08	/* Executing Instruction Address */
+#define	OnCD_PCmem	0x09	/* Memory Access Instruction Address */
+#define	OnCD_PCfetch	0x0A	/* PC (Fetching Instruction Address) */
+#define	OnCD_OMAR	0x0B	/* Memory Address Register */
+#define	OnCD_OMDR	0x0C	/* Memory Data Register */
+#define	OnCD_MEM	0x0D	/* Memory Access Register (EnMEM) */
+#define	OnCD_PCwb	0x0E	/* Address of instruction at write back stage */
+#define	OnCD_MEMACK	0x0E	/* Memory Operation Acknowlege (EnXX) */
+#define	OnCD_EXIT	0x0F	/* Exit From Debug Mode (EnGO) */
 
 /* OSCR Register */
 #define	OSCR_SlctMEM	0x0001	/* Allow Memory Access */
@@ -126,28 +140,51 @@ static unsigned cscon3;
 
 extern int debug;
 
+/* Endpoints for USB-JTAG adapter. */
 #define BULK_WRITE_ENDPOINT	2
 #define BULK_CONTROL_ENDPOINT	4
 #define BULK_READ_ENDPOINT	0x86
 
-#define ADAPTER_ACTIVE_RESET 0x4
-#define ADAPTER_DEACTIVE_RESET 0x5
+/* Commands for control endpoint. */
+#define ADAPTER_PLL_12MHZ	0x01
+#define ADAPTER_PLL_24MHZ	0x02
+#define ADAPTER_PLL_48MHZ	0x03
+#define ADAPTER_ACTIVE_RESET	0x04
+#define ADAPTER_DEACTIVE_RESET	0x05
 
-#define ADAPTER_PLL_12MHZ 0x1
-#define ADAPTER_PLL_24MHZ 0x2
-#define ADAPTER_PLL_48MHZ 0x3
+/*
+ * Пакет, посылаемый адаптеру USB-JTAG, может содержать от одной до 40 команд.
+ * Каждая команда занимает от 2 до 6 байт:
+ * - код команды;
+ * - значение регистра IRd, в том числе номер регистра OnCD;
+ * - четыре или два байта данных, или пусто.
+ *
+ * Код команды имеет следующий формат:
+ *                               Вид команды: 00 - обычное чтение/запись;
+ *                               |   |        01 - блочная запись;
+ *                               |   |        10 - блочное чтение;
+ * биты  7   6   5   4   3   2   1   0        11 - запрос idcode или конец блочной операции.
+ *       |   |   |   |   |   |
+ *       |   |   |   |   |   SYS_RST, 0 - активное состояние
+ *       |   |   |   |   TRST, 0 - активное состояние
+ *       |   |   Длина данных: 00 - 32 бита;
+ *       |   |                 01 - 16 бит;
+ *       |   |                 10 - 12 бит;
+ *       |   |                 11 - пусто.
+ *       |   Debug request/Debug enable, 0 - активное состояние
+ *       0 для Dr, 1 для Ir
+ */
+#define HDR(bits)	(0x7c ^ (bits))	/* Пакет Dr */
+#define HIR(bits)	(0xfc ^ (bits))	/* Пакет Ir */
 
-#define HDR_NORM        0x4c    // Заголовок обычного пакета (32-бита)
-#define HDR_NORM_16     0x5c    // Заголовок обычного пакета (16-бит)
-#define HDR_NORM_12     0x6c    // Заголовок обычного пакета (12-бит)
-
-#define HDR_WR          0x45    // Заголовок неблочной записи
-#define HDR_RD          0x46    // Заголовок неблочного чтения
-#define HDR_END         0x47    // Терминирующий (для неблочных операций) заголовок
-
-#define HDR_BLKWR       0x4d    // Заголовок блочной записи
-#define HDR_BLKRD       0x4e    // Заголовок блочного чтения
-#define HDR_BLKEND      0x4f    // Терминирующий (для блочных операций) заголовок
+#define H_DEBUG		0x40		/* Debug request/Debug enable */
+#define H_32		0x30		/* 32 бита данных */
+#define H_TRST		0x08		/* TRST */
+#define H_SYSRST	0x04		/* SYS_RST */
+#define H_BLKWR		0x01		/* блочная запись */
+#define H_BLKRD		0x02		/* блочное чтение */
+#define H_IDCODE	0x03		/* запрос idcode */
+#define H_BLKEND	0x03		/* конец блочной операции */
 
 #if defined (__CYGWIN32__) || defined (MINGW32)
 /*
@@ -288,8 +325,15 @@ static unsigned bulk_write_read (const unsigned char *wb,
  */
 void jtag_start (void)
 {
-	const unsigned char pkt_reset[8] = { 0x34,0x4d };
-	const unsigned char pkt_getver[8]= { 0xb0,0xff };
+	static const unsigned char pkt_reset[8] = {
+		/* Посылаем команду чтения MEM, но с активным TRST. */
+		HDR (H_DEBUG | H_TRST),
+		OnCD_MEM | IRd_READ,
+	};
+	static const unsigned char pkt_getver[8] = {
+		HIR (H_DEBUG | H_TRST | H_SYSRST),
+		IR_BYPASS
+	};
 	unsigned char rb[32];
 
 	usbdev = libusb_open_device_with_vid_pid (NULL, 0x0547, 0x1002);
@@ -321,8 +365,14 @@ void jtag_start (void)
  */
 void jtag_reset ()
 {
-	const unsigned char pkt_debug_request_sysrst[8] = { 0xb8,0x44 };
-	const unsigned char pkt_debug_enable[8] = { 0xbc,0x55 };
+	static const unsigned char pkt_debug_request_sysrst[8] = {
+		HIR (H_DEBUG | H_SYSRST),
+		IR_DEBUG_REQUEST,
+	};
+	static const unsigned char pkt_debug_enable[8] = {
+		HIR (H_DEBUG),
+		IR_DEBUG_ENABLE,
+	};
 	unsigned char rb[8];
 	unsigned retry;
 
@@ -360,7 +410,10 @@ void jtag_reset ()
  */
 unsigned jtag_get_idcode (void)
 {
-	const unsigned char pkt_idcode[8] = { 0x4b, 0x03 };
+	static const unsigned char pkt_idcode[8] = {
+		HDR (H_32 | H_SYSRST | H_IDCODE),
+		0x03,
+	};
 	unsigned char rb [8];
 	unsigned idcode;
 
@@ -373,14 +426,26 @@ unsigned jtag_get_idcode (void)
 }
 
 /*
+ * Заполнение пакета для блочного или неблочного обращения.
+ */
+unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
+	unsigned reg, unsigned data)
+{
+	*ptr++ = cmd;
+	*ptr++ = reg;
+	*(unsigned*) ptr = data;
+	return ptr + 4;
+}
+
+/*
  * Чтение 32-битного регистра OnCD.
  */
 static unsigned oncd_read (int reg)
 {
-	static unsigned char pkt[8] = { HDR_NORM };
+	unsigned char pkt[6];
 	unsigned val = 0;
 
-	pkt [1] = reg | 0x40;
+	fill_pkt (pkt, HDR (H_32), reg | IRd_READ, 0);
 	if (bulk_write_read (pkt, 6, (unsigned char*) &val, 4) != 4) {
 		fprintf (stderr, "Failed to read register.\n");
 		exit (-1);
@@ -394,11 +459,10 @@ static unsigned oncd_read (int reg)
  */
 static void oncd_write (unsigned val, int reg)
 {
-	static unsigned char pkt[8] = { HDR_NORM };
+	unsigned char pkt[6];
 
 //fprintf (stderr, "OnCD write %d := %08x\n", reg, val);
-	pkt [1] = reg;
-	memcpy (pkt+2, &val, 4);
+	fill_pkt (pkt, HDR (H_32), reg, val);
 	bulk_write (pkt, 6);
 }
 
@@ -413,19 +477,7 @@ static void exec (unsigned instr)
 
 	/* Supply instruction to pipeline and do step */
 	oncd_write (instr, OnCD_IRdec);
-	oncd_write (0, OnCD_EXIT | 0xc0);
-}
-
-/*
- * Заполнение пакета для блочного или неблочного обращения.
- */
-unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
-	unsigned reg, unsigned data)
-{
-	*ptr++ = cmd;
-	*ptr++ = reg;
-	*(unsigned*) ptr = data;
-	return ptr + 4;
+	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK);
 }
 
 /*
@@ -476,18 +528,18 @@ void jtag_write_2words (unsigned data1, unsigned addr1,
 	unsigned oscr;
 #if 1
 	/* Блочная запись. */
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data2);
 #else
 	/* Неблочная запись. */
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data2);
 #endif
-	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to write 4 words.\n");
@@ -506,33 +558,28 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 {
 	unsigned char pkt [6*2*4 + 6], *ptr = pkt;
 	unsigned oscr;
-
-//fprintf (stderr, "write %08x to %08x\n", data1, addr1);
-//fprintf (stderr, "      %08x to %08x\n", data2, addr2);
-//fprintf (stderr, "      %08x to %08x\n", data3, addr3);
-//fprintf (stderr, "      %08x to %08x\n", data4, addr4);
 #if 1
 	/* Блочная запись. */
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data2);
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr3);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data3);
-	ptr = fill_pkt (ptr, HDR_BLKWR, OnCD_OMAR, addr4);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR, data4);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr3);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data3);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr4);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data4);
 #else
 	/* Неблочная запись. */
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data2);
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr3);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data3);
-	ptr = fill_pkt (ptr, HDR_WR, OnCD_OMAR, addr4);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR, data4);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data1);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data2);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr3);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data3);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr4);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data4);
 #endif
-	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to write 4 words.\n");
@@ -580,7 +627,7 @@ unsigned jtag_read_next (unsigned phys_addr)
 		phys_addr -= 0xA0000000;
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
-//fprintf (stderr, "read %08x ", phys_addr); fflush (stderr);
+
 	oncd_write (phys_addr, OnCD_OMAR);
 	oncd_write (0, OnCD_MEM);
 	for (wait = 100000; wait != 0; wait--) {
@@ -594,7 +641,6 @@ unsigned jtag_read_next (unsigned phys_addr)
 		exit (1);
 	}
 	data = oncd_read (OnCD_OMDR);
-//fprintf (stderr, "-> %08x\n", data);
 	return data;
 }
 
@@ -610,28 +656,28 @@ void jtag_read_8words (unsigned addr, unsigned *data)
 	unsigned oscr;
 #if 1
 	/* Блочное чтение. */
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMAR, addr);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKRD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_BLKEND, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMAR, addr);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
 #else
 	/* Неблочное чтение. */
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMAR, addr);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_RD, OnCD_OMDR | 0x40, 0);
-	ptr = fill_pkt (ptr, HDR_END, OnCD_OMDR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMAR, addr);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
 #endif
-	ptr = fill_pkt (ptr, HDR_NORM, OnCD_OSCR | 0x40, 0);
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt,
 	    (unsigned char*) data, 4*8) != 4*8) {
@@ -730,7 +776,7 @@ void multicore_close (multicore_t *mc)
 	oncd_write (oscr, OnCD_OSCR);
 
 	/* Exit */
-	oncd_write (0, OnCD_EXIT | 0x60);
+	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN);
 }
 
 /*
@@ -1082,7 +1128,6 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 			   mc->flash_cmd_55, base + mc->flash_addr_even);
 	jtag_write_2bytes (mc->flash_cmd_a0, base + mc->flash_addr_odd,
 			   byte, addr);
-//	jtag_usleep (10000);
 	return 1;
 }
 
@@ -1103,7 +1148,6 @@ void multicore_read_nwords (multicore_t *mc, unsigned addr,
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
-//	oncd_write (0, OnCD_OSCR);
 	while (nwords >= 8) {
 		jtag_read_8words (addr, data);
 		data += 8;
