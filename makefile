@@ -1,9 +1,9 @@
 CC		= gcc
-CFLAGS		= -Wall -g #-O
+CFLAGS		= -Wall -g -I/opt/local/include #-O
 #OBJS		= multicore-lpt.o conf.o
 
 OBJS		= multicore-usb.o conf.o
-LIBS		= -lusb-1.0
+LIBS		= -L/opt/local/lib -lusb-1.0
 
 all:		mcprog
 

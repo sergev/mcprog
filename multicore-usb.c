@@ -335,13 +335,19 @@ void jtag_start (void)
 		IR_BYPASS
 	};
 	unsigned char rb[32];
+	int cfg;
 
 	usbdev = libusb_open_device_with_vid_pid (NULL, 0x0547, 0x1002);
 	if (! usbdev) {
-		fprintf (stderr, "USB-JTAG Multicore adapter not found.d\n");
+		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");
 		exit (-1);
 	}
-	bulk_cmd (ADAPTER_PLL_12MHZ);
+	if (libusb_get_configuration (usbdev, &cfg) != 0 || cfg != 1)
+		libusb_set_configuration (usbdev, 1);
+	libusb_claim_interface (usbdev, 0);
+
+//	bulk_cmd (ADAPTER_PLL_12MHZ);
+	bulk_cmd (ADAPTER_PLL_48MHZ);
 	jtag_usleep (1000);
 	bulk_cmd (ADAPTER_ACTIVE_RESET);
 	jtag_usleep (1000);
@@ -777,6 +783,8 @@ void multicore_close (multicore_t *mc)
 
 	/* Exit */
 	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN);
+
+	libusb_release_interface (usbdev, 0);
 }
 
 /*
