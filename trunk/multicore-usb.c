@@ -532,6 +532,35 @@ void jtag_write_word (unsigned data, unsigned phys_addr)
 	jtag_write_next (data, phys_addr);
 }
 
+void jtag_write_nwords (unsigned nwords, unsigned addr, unsigned *data)
+{
+	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
+	unsigned oscr, i;
+#if 1
+	/* Блочная запись. */
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+	for (i=1; i<nwords; i++)
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMDR, *data++);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+#else
+	/* Неблочная запись. */
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr);
+	for (i=1; i<nwords; i++)
+		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMDR, *data++);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, *data);
+#endif
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to write 4 words.\n");
+		exit (-1);
+	}
+	if (! (oscr & OSCR_RDYm)) {
+		fprintf (stderr, "Timeout writing N words, aborted. OSCR=%#x\n", oscr);
+		exit (1);
+	}
+}
+
 void jtag_write_2words (unsigned data1, unsigned addr1,
 	unsigned data2, unsigned addr2)
 {
@@ -661,42 +690,32 @@ unsigned jtag_read_word (unsigned phys_addr)
 	return jtag_read_next (phys_addr);
 }
 
-void jtag_read_8words (unsigned addr, unsigned *data)
+void jtag_read_nwords (unsigned nwords, unsigned addr, unsigned *data)
 {
-	unsigned char pkt [6*9 + 6], *ptr = pkt;
-	unsigned oscr;
+	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
+	unsigned oscr, i;
 #if 1
 	/* Блочное чтение. */
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMAR, addr);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	for (i=1; i<nwords; i++)
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
 #else
 	/* Неблочное чтение. */
 	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMAR, addr);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
+	for (i=1; i<nwords; i++)
+		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
 #endif
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt,
-	    (unsigned char*) data, 4*8) != 4*8) {
+	    (unsigned char*) data, 4*nwords) != 4*nwords) {
 		fprintf (stderr, "Empty data reading memory, aborted.\n");
 		exit (1);
 	}
 	if (bulk_read ((unsigned char*) &oscr, 4) != 4) {
-		fprintf (stderr, "Failed to write 4 words.\n");
+		fprintf (stderr, "Failed to read N words.\n");
 		exit (-1);
 	}
 	if (! (oscr & OSCR_RDYm)) {
@@ -1120,8 +1139,7 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 		addr -= 0x80000000;
 
 	/* Повтор записи возможен, только если не прописались нули. */
-	jtag_read_start ();
-	bad = jtag_read_next (addr);
+	bad = jtag_read_word (addr);
 	if ((bad & word) != word) {
 		fprintf (stderr, "multicore: cannot rewrite word at %x\n",
 			addr);
@@ -1144,14 +1162,9 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 	return 1;
 }
 
-void multicore_read_start (multicore_t *mc)
+unsigned multicore_read_word (multicore_t *mc, unsigned addr)
 {
-	jtag_read_start ();
-}
-
-unsigned multicore_read_next (multicore_t *mc, unsigned addr)
-{
-	return jtag_read_next (addr);
+	return jtag_read_word (addr);
 }
 
 void multicore_read_nwords (multicore_t *mc, unsigned addr,
@@ -1161,19 +1174,32 @@ void multicore_read_nwords (multicore_t *mc, unsigned addr,
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
-	while (nwords >= 8) {
-		jtag_read_8words (addr, data);
-		data += 8;
-		addr += 8*4;
-		nwords -= 8;
-	}
-	if (nwords == 0)
-		return;
-	jtag_read_start ();
 	while (nwords > 0) {
-		*data++ = jtag_read_next (addr);
-		addr += 4;
-		nwords--;
+		unsigned n = nwords;
+		if (n > 64)
+			n = 64;
+		jtag_read_nwords (n, addr, data);
+		data += n;
+		addr += n*4;
+		nwords -= n;
+	}
+}
+
+void multicore_write_nwords (multicore_t *mc, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+	while (nwords > 0) {
+		unsigned n = nwords;
+		if (n > 64)
+			n = 64;
+		jtag_write_nwords (n, addr, data);
+		data += n;
+		addr += n*4;
+		nwords -= n;
 	}
 }
 

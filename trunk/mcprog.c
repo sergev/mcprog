@@ -195,16 +195,9 @@ void program_block (multicore_t *mc, unsigned addr, int len)
 
 void write_block (multicore_t *mc, unsigned addr, int len)
 {
-	int i;
-	unsigned word;
-
 	/* Write static memory. */
-	word = *(unsigned*) (memory_data + addr);
-	multicore_write_word (mc, memory_base + addr, word);
-	for (i=4; i<len; i+=4) {
-		word = *(unsigned*) (memory_data + addr + i);
-		multicore_write_next (mc, memory_base + addr + i, word);
-	}
+	multicore_write_nwords (mc, memory_base + addr,
+		(len + 3) / 4, (unsigned*) (memory_data + addr));
 }
 
 void progress ()
@@ -247,8 +240,7 @@ addr + i + memory_base, expected, word); fflush (stdout); */
 			}
 			printf ("%%\b");
 			fflush (stdout);
-			multicore_read_start (mc);
-			word = multicore_read_next (mc, memory_base + addr + i);
+			word = multicore_read_word (mc, memory_base + addr + i);
 		}
 	}
 }
@@ -502,7 +494,7 @@ void do_write ()
 void do_read (char *filename)
 {
 	FILE *fd;
-	unsigned len, addr, word, i;
+	unsigned len, addr, data [BLOCKSZ/4];
 	void *t0;
 
 	fd = fopen (filename, "wb");
@@ -540,16 +532,11 @@ void do_read (char *filename)
 			len = memory_len - addr;
 		progress ();
 
-		multicore_read_start (multicore);
-		for (i=0; i<len; i+=4) {
-			word = multicore_read_next (multicore, memory_base + addr + i);
-			if (debug > 1)
-				printf ("read word %08X at address %08X\n",
-					word, addr + i + memory_base);
-			if (fwrite (&word, 1, sizeof (word), fd) != sizeof (word)) {
-				fprintf (stderr, "%s: write error!\n", filename);
-				exit (1);
-			}
+		multicore_read_nwords (multicore, memory_base + addr,
+			(len + 3) / 4, data);
+		if (fwrite (data, 1, len, fd) != len) {
+			fprintf (stderr, "%s: write error!\n", filename);
+			exit (1);
 		}
 	}
 	printf ("# done\n");
