@@ -12,9 +12,10 @@ int multicore_flash_detect (multicore_t *mc, unsigned base,
 	unsigned *mf, unsigned *dev, char *mfname, char *devname,
 	unsigned *bytes, unsigned *width);
 int multicore_erase (multicore_t *mc, unsigned addr);
-void multicore_read_start (multicore_t *mc);
-unsigned multicore_read_next (multicore_t *mc, unsigned addr);
+unsigned multicore_read_word (multicore_t *mc, unsigned addr);
 void multicore_read_nwords (multicore_t *mc, unsigned addr,
+	unsigned nwords, unsigned *data);
+void multicore_write_nwords (multicore_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data);
 void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word);
 int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word);
