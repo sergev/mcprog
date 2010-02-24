@@ -19,7 +19,12 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
-#include <libusb-1.0/libusb.h>
+#if defined (__CYGWIN32__) || defined (MINGW32)
+#   include "libusb-win32/usb.h"
+#   include "usb-win32.c"
+#else
+#   include <libusb-1.0/libusb.h>
+#endif
 
 #include "multicore.h"
 

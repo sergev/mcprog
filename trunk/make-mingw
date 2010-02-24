@@ -1,10 +1,11 @@
-#CC		= gcc
-CC		= i586-mingw32msvc-gcc
+CC		= gcc
+#CC		= i586-mingw32msvc-gcc
 CFLAGS		= -Wall -g -O -DMINGW32
 LDFLAGS		= -s
-OBJS		= multicore.o conf.o
+LIBS		= -Llibusb-win32 -lusb
+OBJS		= multicore-usb.o conf.o
 
 all:		mcprog.exe
 
 mcprog.exe:	$(OBJS) mcprog.o
-		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS)
+		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS) $(LIBS)
