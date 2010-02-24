@@ -39,6 +39,7 @@ int libusb_get_configuration (libusb_device_handle *dev, int *config)
 int libusb_set_configuration (libusb_device_handle *dev, int configuration)
 {
 	return usb_set_configuration (dev, configuration);
+//	return 0;
 }
 
 int libusb_claim_interface (libusb_device_handle *dev, int iface)
