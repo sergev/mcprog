@@ -351,8 +351,8 @@ void jtag_start (void)
 		libusb_set_configuration (usbdev, 1);
 	libusb_claim_interface (usbdev, 0);
 
-//	bulk_cmd (ADAPTER_PLL_12MHZ);
-	bulk_cmd (ADAPTER_PLL_48MHZ);
+	bulk_cmd (ADAPTER_PLL_12MHZ);
+//	bulk_cmd (ADAPTER_PLL_48MHZ);
 	jtag_usleep (1000);
 	bulk_cmd (ADAPTER_ACTIVE_RESET);
 	jtag_usleep (1000);
