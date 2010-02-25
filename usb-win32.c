@@ -12,7 +12,7 @@ int libusb_init (libusb_context **ctx)
 }
 
 libusb_device_handle *libusb_open_device_with_vid_pid (libusb_context *ctx,
-	uint16_t vendor_id, uint16_t product_id)
+	unsigned short vendor_id, unsigned short product_id)
 {
 	struct usb_bus *bus;
 	struct usb_device *dev;
