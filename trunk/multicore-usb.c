@@ -709,9 +709,10 @@ void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsign
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
-	unsigned char pkt [6*8*nwords + 6], *ptr = pkt;
+	unsigned char pkt [6*(8+1)*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
-//printf ("jtag_program_block32 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
+//printf ("jtag_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n",
+//nwords, base, addr, cmd_aa, cmd_55, cmd_a0);
 	for (i=0; i<nwords; i++) {
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
@@ -721,6 +722,8 @@ void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsign
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+		/* delay */
+		ptr = fill_pkt (ptr, HDR (H_32), OnCD_OMDR, 0);
 		addr += 4;
 		data++;
 	}
@@ -763,47 +766,6 @@ void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsign
 	}
 	if (! (oscr & OSCR_RDYm)) {
 		fprintf (stderr, "Timeout programming block32, aborted. OSCR=%#x\n", oscr);
-		exit (1);
-	}
-}
-
-/*
- * Заполнение пакета для записи байта.
- */
-unsigned char *fill_pkt_write_byte (unsigned char *ptr, unsigned addr, unsigned data)
-{
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, MC_CSCON3);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cscon3 | MC_CSCON3_ADDR (addr));
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data);
-	return ptr;
-}
-
-void jtag_program_block8 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
-	unsigned cmd_a0)
-{
-	unsigned char pkt [6*4*8*nwords + 6], *ptr = pkt;
-	unsigned oscr, i;
-//printf ("jtag_program_block8 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
-	for (i=0; i<nwords; i++) {
-		unsigned word = *data++;
-		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
-                ptr = fill_pkt_write_byte (ptr, addr++, word);
-		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
-                ptr = fill_pkt_write_byte (ptr, addr++, word >> 8);
-		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
-                ptr = fill_pkt_write_byte (ptr, addr++, word >> 16);
-		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
-                ptr = fill_pkt_write_byte (ptr, addr++, word >> 24);
-	}
-	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
-		fprintf (stderr, "Failed to program block8.\n");
-		exit (-1);
-	}
-	if (! (oscr & OSCR_RDYm)) {
-		fprintf (stderr, "Timeout programming block8, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
 }
@@ -1184,6 +1146,7 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 	unsigned bad, base;
 	unsigned char byte;
 
+	base = compute_base (mc, addr);
 	if (addr >= 0xA0000000)
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
@@ -1197,19 +1160,32 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 		exit (1);
 	}
 
-	/* Вычисляем нужный байт. */
-	for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
-		addr++;
-		word >>= 8;
-	}
-	byte = word;
-	/*fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);*/
+	switch (mc->flash_width) {
+	case 8:
+		/* Вычисляем нужный байт. */
+		for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
+			addr++;
+			word >>= 8;
+		}
+		byte = word;
+fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
 
-	base = compute_base (mc, addr);
-	jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
-			   mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_2bytes (mc->flash_cmd_a0, base + mc->flash_addr_odd,
-			   byte, addr);
+		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
+				   mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_2bytes (mc->flash_cmd_a0, base + mc->flash_addr_odd,
+				   byte, addr);
+		break;
+	case 64:
+		base += addr & 4;
+		/* fall through...*/
+	case 32:
+fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
+		jtag_write_4words (mc->flash_cmd_aa, base + mc->flash_addr_odd,
+				   mc->flash_cmd_55, base + mc->flash_addr_even,
+				   mc->flash_cmd_a0, base + mc->flash_addr_odd,
+				   word, addr);
+		break;
+	}
 	return 1;
 }
 
@@ -1284,17 +1260,13 @@ void multicore_program_block (multicore_t *mc, unsigned addr,
 		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
 				   mc->flash_cmd_55, base + mc->flash_addr_even);
 		jtag_write_byte (mc->flash_cmd_20, base + mc->flash_addr_odd);
-
-		while (nwords > 0) {
-			unsigned n = nwords;
-			if (n > 4)
-				n = 4;
-			jtag_program_block8 (n, base, addr, data, mc->flash_cmd_a0);
-			data += n;
-			addr += n*4;
-			nwords -= n;
+		while (nwords-- > 0) {
+			unsigned word = *data++;
+			jtag_write_2bytes (mc->flash_cmd_a0, base, word, addr++);
+			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 8, addr++);
+			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 16, addr++);
+			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 24, addr++);
 		}
-
 		/* Reset unlock bypass. */
 		jtag_write_2bytes (mc->flash_cmd_90, base, 0, base);
 		break;

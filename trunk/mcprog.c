@@ -226,8 +226,7 @@ void verify_block (multicore_t *mc, unsigned addr, int len)
 			 * Пробуем повторить операцию. */
 /* printf ("\nerror at address %08X: file=%08X, mem=%08X ",
 addr + i + memory_base, expected, word); fflush (stdout); */
-			if (verify_only || multicore_flash_width (mc) != 8 ||
-			    ! multicore_flash_rewrite (mc,
+			if (verify_only || ! multicore_flash_rewrite (mc,
 			    memory_base + addr + i, expected)) {
 				printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
 					addr + i + memory_base, expected, word);
@@ -407,8 +406,8 @@ void do_program ()
 		printf ("No flash memory detected.\n");
 		return;
 	}
-	printf ("Flash: %s %s, size %d Mbytes\n",
-		mfname, devname, bytes / 1024 / 1024);
+	printf ("Flash: %s %s, size %d Mbytes, %d bit wide\n",
+		mfname, devname, bytes / 1024 / 1024, width);
 
 	if (! verify_only) {
 		/* Erase flash. */
