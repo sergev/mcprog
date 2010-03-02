@@ -40,6 +40,7 @@ struct _multicore_t {
 	unsigned	flash_cmd_aa;
 	unsigned	flash_cmd_55;
 	unsigned	flash_cmd_10;
+	unsigned	flash_cmd_20;
 	unsigned	flash_cmd_80;
 	unsigned	flash_cmd_90;
 	unsigned	flash_cmd_a0;
@@ -79,6 +80,8 @@ static unsigned cscon3;
 #define FLASH_CMD8_55		0x55555555
 #define FLASH_CMD16_10		0x00100010	/* Chip erase 2/2 */
 #define FLASH_CMD8_10		0x10101010
+#define FLASH_CMD16_20		0x00200020	/* Unlock bypass */
+#define FLASH_CMD8_20		0x20202020
 #define FLASH_CMD16_80		0x00800080	/* Chip erase 1/2 */
 #define FLASH_CMD8_80		0x80808080
 #define FLASH_CMD16_90		0x00900090	/* Read ID */
@@ -186,10 +189,16 @@ extern int debug;
 #define H_32		0x30		/* 32 бита данных */
 #define H_TRST		0x08		/* TRST */
 #define H_SYSRST	0x04		/* SYS_RST */
+#if 1
 #define H_BLKWR		0x01		/* блочная запись */
 #define H_BLKRD		0x02		/* блочное чтение */
-#define H_IDCODE	0x03		/* запрос idcode */
 #define H_BLKEND	0x03		/* конец блочной операции */
+#else
+#define H_BLKWR		0x09		/* неблочная запись */
+#define H_BLKRD		0x0a		/* неблочное чтение */
+#define H_BLKEND	0x0b		/* конец неблочной операции */
+#endif
+#define H_IDCODE	0x03		/* запрос idcode */
 
 #if defined (__CYGWIN32__) || defined (MINGW32)
 /*
@@ -532,23 +541,15 @@ void jtag_write_word (unsigned data, unsigned phys_addr)
 	jtag_write_next (data, phys_addr);
 }
 
-void jtag_write_nwords (unsigned nwords, unsigned addr, unsigned *data)
+void jtag_write_block (unsigned nwords, unsigned addr, unsigned *data)
 {
 	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
-#if 1
-	/* Блочная запись. */
+
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
 	for (i=1; i<nwords; i++)
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMDR, *data++);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
-#else
-	/* Неблочная запись. */
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr);
-	for (i=1; i<nwords; i++)
-		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMDR, *data++);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, *data);
-#endif
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
@@ -566,19 +567,11 @@ void jtag_write_2words (unsigned data1, unsigned addr1,
 {
 	unsigned char pkt [6*2*2 + 6], *ptr = pkt;
 	unsigned oscr;
-#if 1
-	/* Блочная запись. */
+
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr1);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data1);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr2);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data2);
-#else
-	/* Неблочная запись. */
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data2);
-#endif
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
@@ -598,8 +591,7 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 {
 	unsigned char pkt [6*2*4 + 6], *ptr = pkt;
 	unsigned oscr;
-#if 1
-	/* Блочная запись. */
+
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr1);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data1);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr2);
@@ -608,17 +600,6 @@ void jtag_write_4words (unsigned data1, unsigned addr1,
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data3);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr4);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data4);
-#else
-	/* Неблочная запись. */
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr1);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data1);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr2);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data2);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr3);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data3);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKWR), OnCD_OMAR, addr4);
-	ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR, data4);
-#endif
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
@@ -690,7 +671,7 @@ unsigned jtag_read_word (unsigned phys_addr)
 	return jtag_read_next (phys_addr);
 }
 
-void jtag_read_nwords (unsigned nwords, unsigned addr, unsigned *data)
+void jtag_read_block (unsigned nwords, unsigned addr, unsigned *data)
 {
 	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
@@ -720,6 +701,109 @@ void jtag_read_nwords (unsigned nwords, unsigned addr, unsigned *data)
 	}
 	if (! (oscr & OSCR_RDYm)) {
 		fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
+		exit (1);
+	}
+}
+
+void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+	unsigned addr_odd, unsigned addr_even,
+	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
+{
+	unsigned char pkt [6*8*nwords + 6], *ptr = pkt;
+	unsigned oscr, i;
+//printf ("jtag_program_block32 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
+	for (i=0; i<nwords; i++) {
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+		addr += 4;
+		data++;
+	}
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to program block32.\n");
+		exit (-1);
+	}
+	if (! (oscr & OSCR_RDYm)) {
+		fprintf (stderr, "Timeout programming block32, aborted. OSCR=%#x\n", oscr);
+		exit (1);
+	}
+}
+
+void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+	unsigned addr_odd, unsigned addr_even,
+	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
+{
+	unsigned char pkt [6*8*nwords + 6], *ptr = pkt;
+	unsigned oscr, i;
+//printf ("jtag_program_block64 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
+	for (i=0; i<nwords; i++) {
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd + (addr & 4));
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even + (addr & 4));
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd + (addr & 4));
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+		addr += 4;
+		data++;
+	}
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to program block32.\n");
+		exit (-1);
+	}
+	if (! (oscr & OSCR_RDYm)) {
+		fprintf (stderr, "Timeout programming block32, aborted. OSCR=%#x\n", oscr);
+		exit (1);
+	}
+}
+
+/*
+ * Заполнение пакета для записи байта.
+ */
+unsigned char *fill_pkt_write_byte (unsigned char *ptr, unsigned addr, unsigned data)
+{
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, MC_CSCON3);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cscon3 | MC_CSCON3_ADDR (addr));
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data);
+	return ptr;
+}
+
+void jtag_program_block8 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+	unsigned cmd_a0)
+{
+	unsigned char pkt [6*4*8*nwords + 6], *ptr = pkt;
+	unsigned oscr, i;
+//printf ("jtag_program_block8 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
+	for (i=0; i<nwords; i++) {
+		unsigned word = *data++;
+		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
+                ptr = fill_pkt_write_byte (ptr, addr++, word);
+		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
+                ptr = fill_pkt_write_byte (ptr, addr++, word >> 8);
+		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
+                ptr = fill_pkt_write_byte (ptr, addr++, word >> 16);
+		ptr = fill_pkt_write_byte (ptr, base, cmd_a0);
+                ptr = fill_pkt_write_byte (ptr, addr++, word >> 24);
+	}
+	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
+
+	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+		fprintf (stderr, "Failed to program block8.\n");
+		exit (-1);
+	}
+	if (! (oscr & OSCR_RDYm)) {
+		fprintf (stderr, "Timeout programming block8, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
 }
@@ -906,6 +990,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			mc->flash_cmd_aa = FLASH_CMD16_AA;
 			mc->flash_cmd_55 = FLASH_CMD16_55;
 			mc->flash_cmd_10 = FLASH_CMD16_10;
+			mc->flash_cmd_20 = FLASH_CMD16_20;
 			mc->flash_cmd_80 = FLASH_CMD16_80;
 			mc->flash_cmd_90 = FLASH_CMD16_90;
 			mc->flash_cmd_a0 = FLASH_CMD16_A0;
@@ -920,6 +1005,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			mc->flash_cmd_aa = FLASH_CMD16_AA;
 			mc->flash_cmd_55 = FLASH_CMD16_55;
 			mc->flash_cmd_10 = FLASH_CMD16_10;
+			mc->flash_cmd_20 = FLASH_CMD16_20;
 			mc->flash_cmd_80 = FLASH_CMD16_80;
 			mc->flash_cmd_90 = FLASH_CMD16_90;
 			mc->flash_cmd_a0 = FLASH_CMD16_A0;
@@ -934,6 +1020,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			mc->flash_cmd_aa = FLASH_CMD8_AA;
 			mc->flash_cmd_55 = FLASH_CMD8_55;
 			mc->flash_cmd_10 = FLASH_CMD8_10;
+			mc->flash_cmd_20 = FLASH_CMD8_20;
 			mc->flash_cmd_80 = FLASH_CMD8_80;
 			mc->flash_cmd_90 = FLASH_CMD8_90;
 			mc->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -948,6 +1035,7 @@ int multicore_flash_detect (multicore_t *mc, unsigned addr,
 			mc->flash_cmd_aa = FLASH_CMD8_AA;
 			mc->flash_cmd_55 = FLASH_CMD8_55;
 			mc->flash_cmd_10 = FLASH_CMD8_10;
+			mc->flash_cmd_20 = FLASH_CMD8_20;
 			mc->flash_cmd_80 = FLASH_CMD8_80;
 			mc->flash_cmd_90 = FLASH_CMD8_90;
 			mc->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -1088,43 +1176,6 @@ int multicore_erase (multicore_t *mc, unsigned addr)
 	return 1;
 }
 
-void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
-{
-	unsigned base;
-
-	base = compute_base (mc, addr);
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-
-	if (mc->flash_width == 8) {
-		/* 8-разрядная шина. */
-		/* Unlock bypass. */
-		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				   mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (0x20, base + mc->flash_addr_odd);
-
-		/* Program. */
-		jtag_write_2bytes (mc->flash_cmd_a0, base, word, addr);
-		jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 8, addr + 1);
-		jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 16, addr + 2);
-		jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 24, addr + 3);
-
-		/* Reset unlock bypass. */
-		jtag_write_2bytes (mc->flash_cmd_90, base, 0x00, base);
-	} else {
-		if (mc->flash_width == 64 && (addr & 4)) {
-			/* Старшая половина 64-разрядной шины. */
-			base += 4;
-		}
-		jtag_write_4words (mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				mc->flash_cmd_55, base + mc->flash_addr_even,
-				mc->flash_cmd_a0, base + mc->flash_addr_odd,
-				word, addr);
-	}
-}
-
 /*
  * Повторная запись реализована только для 8-битной flash-памяти.
  */
@@ -1167,7 +1218,7 @@ unsigned multicore_read_word (multicore_t *mc, unsigned addr)
 	return jtag_read_word (addr);
 }
 
-void multicore_read_nwords (multicore_t *mc, unsigned addr,
+void multicore_read_block (multicore_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
 	if (addr >= 0xA0000000)
@@ -1178,14 +1229,14 @@ void multicore_read_nwords (multicore_t *mc, unsigned addr,
 		unsigned n = nwords;
 		if (n > 64)
 			n = 64;
-		jtag_read_nwords (n, addr, data);
+		jtag_read_block (n, addr, data);
 		data += n;
 		addr += n*4;
 		nwords -= n;
 	}
 }
 
-void multicore_write_nwords (multicore_t *mc, unsigned addr,
+void multicore_write_block (multicore_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
 	if (addr >= 0xA0000000)
@@ -1196,7 +1247,7 @@ void multicore_write_nwords (multicore_t *mc, unsigned addr,
 		unsigned n = nwords;
 		if (n > 64)
 			n = 64;
-		jtag_write_nwords (n, addr, data);
+		jtag_write_block (n, addr, data);
 		data += n;
 		addr += n*4;
 		nwords -= n;
@@ -1213,4 +1264,66 @@ void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
 void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word)
 {
 	jtag_write_next (word, addr);
+}
+
+void multicore_program_block (multicore_t *mc, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	unsigned base;
+
+	base = compute_base (mc, addr);
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+//printf ("multicore_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, mc->flash_width, base);
+	switch (mc->flash_width) {
+	case 8:
+		/* 8-разрядная шина. */
+		/* Unlock bypass. */
+		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
+				   mc->flash_cmd_55, base + mc->flash_addr_even);
+		jtag_write_byte (mc->flash_cmd_20, base + mc->flash_addr_odd);
+
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 4)
+				n = 4;
+			jtag_program_block8 (n, base, addr, data, mc->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+
+		/* Reset unlock bypass. */
+		jtag_write_2bytes (mc->flash_cmd_90, base, 0, base);
+		break;
+	case 32:
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 16)
+				n = 16;
+			jtag_program_block32 (n, base, addr, data,
+				mc->flash_addr_odd, mc->flash_addr_even,
+				mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		break;
+	case 64:
+		/* 64-разрядная шина. */
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 16)
+				n = 16;
+			jtag_program_block64 (n, base, addr, data,
+				mc->flash_addr_odd, mc->flash_addr_even,
+				mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		break;
+	}
 }

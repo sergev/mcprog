@@ -181,31 +181,26 @@ void print_symbols (char symbol, int cnt)
 
 void program_block (multicore_t *mc, unsigned addr, int len)
 {
-	int i;
-	unsigned word;
-
 	/* Write flash memory. */
-	for (i=0; i<len; i+=4) {
-		word = *(unsigned*) (memory_data + addr + i);
-		if (word != 0xffffffff)
-			multicore_flash_write (mc, memory_base + addr + i,
-				word);
-	}
+	multicore_program_block (mc, memory_base + addr,
+		(len + 3) / 4, (unsigned*) (memory_data + addr));
 }
 
 void write_block (multicore_t *mc, unsigned addr, int len)
 {
 	/* Write static memory. */
-	multicore_write_nwords (mc, memory_base + addr,
+	multicore_write_block (mc, memory_base + addr,
 		(len + 3) / 4, (unsigned*) (memory_data + addr));
 }
 
 void progress ()
 {
 	++progress_count;
+#if 0
 	putchar ("/-\\|" [progress_count & 3]);
 	putchar ('\b');
 	fflush (stdout);
+#endif
 	if (progress_count % progress_step == 0) {
 		putchar ('#');
 		fflush (stdout);
@@ -217,7 +212,7 @@ void verify_block (multicore_t *mc, unsigned addr, int len)
 	int i;
 	unsigned word, expected, block [BLOCKSZ/4];
 
-	multicore_read_nwords (mc, memory_base + addr, (len+3)/4, block);
+	multicore_read_block (mc, memory_base + addr, (len+3)/4, block);
 	for (i=0; i<len; i+=4) {
 		expected = *(unsigned*) (memory_data + addr + i);
 //		if (expected == 0xffffffff)
@@ -532,7 +527,7 @@ void do_read (char *filename)
 			len = memory_len - addr;
 		progress ();
 
-		multicore_read_nwords (multicore, memory_base + addr,
+		multicore_read_block (multicore, memory_base + addr,
 			(len + 3) / 4, data);
 		if (fwrite (data, 1, len, fd) != len) {
 			fprintf (stderr, "%s: write error!\n", filename);

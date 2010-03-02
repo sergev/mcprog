@@ -13,11 +13,12 @@ int multicore_flash_detect (multicore_t *mc, unsigned base,
 	unsigned *bytes, unsigned *width);
 int multicore_erase (multicore_t *mc, unsigned addr);
 unsigned multicore_read_word (multicore_t *mc, unsigned addr);
-void multicore_read_nwords (multicore_t *mc, unsigned addr,
+void multicore_read_block (multicore_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data);
-void multicore_write_nwords (multicore_t *mc, unsigned addr,
+void multicore_write_block (multicore_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data);
-void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word);
+void multicore_program_block (multicore_t *mc, unsigned addr,
+	unsigned nwords, unsigned *data);
 int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word);
 void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word);
 void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word);
