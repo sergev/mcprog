@@ -231,6 +231,7 @@ addr + i + memory_base, expected, word); fflush (stdout); */
 				printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
 					addr + i + memory_base, expected, word);
 				exit (1);
+//				break;
 			}
 			printf ("%%\b");
 			fflush (stdout);
@@ -250,9 +251,15 @@ void probe_flash (multicore_t *mc, unsigned base)
 		printf ("Incorrect id %08X\n", devcode);
 		return;
 	}
-	printf ("%s %s (id %04x/%04x), %d Mbytes, %d bit wide\n",
-		mfname, devname, mfcode & 0xFFFF, devcode & 0xFFFF,
-		bytes / 1024 / 1024, width);
+	printf ("%s %s ", mfname, devname);
+	if (width == 8)
+		printf ("(id %02x/%02x)", mfcode & 0xFF, devcode & 0xFF);
+	else
+		printf ("(id %08x/%08x)", mfcode, devcode);
+	if (bytes % (1024*1024) == 0)
+		printf (", %d Mbytes, %d bit wide\n", bytes / 1024 / 1024, width);
+	else
+		printf (", %d kbytes, %d bit wide\n", bytes / 1024, width);
 }
 
 void quit (void)
@@ -406,8 +413,11 @@ void do_program ()
 		printf ("No flash memory detected.\n");
 		return;
 	}
-	printf ("Flash: %s %s, size %d Mbytes, %d bit wide\n",
-		mfname, devname, bytes / 1024 / 1024, width);
+	printf ("Flash: %s %s", mfname, devname);
+	if (bytes % (1024*1024) == 0)
+		printf (", size %d Mbytes, %d bit wide\n", bytes / 1024 / 1024, width);
+	else
+		printf (", size %d kbytes, %d bit wide\n", bytes / 1024, width);
 
 	if (! verify_only) {
 		/* Erase flash. */
