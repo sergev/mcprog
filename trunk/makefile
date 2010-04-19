@@ -11,7 +11,7 @@ mcprog:		$(OBJS) mcprog.o
 		$(CC) -o mcprog mcprog.o $(OBJS) $(LIBS)
 
 multicore-bitbang: multicore-bitbang.c
-		$(CC) $(CFLAGS) -DSTANDALONE -o $@ multicore-bitbang.c -L/opt/local/lib -lftdi
+		$(CC) $(CFLAGS) -DSTANDALONE -o $@ multicore-bitbang.c -L/opt/local/lib -lusb
 
 clean:
 		rm -f *~ *.o core mcprog mcprog.exe multicore-bitbang

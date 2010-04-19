@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #include <string.h>
 
-#include <ftdi.h>
+#include <usb.h>
 
 /*
  * We use a layout of original usbjtag adapter, designed by Hubert Hoegl:
@@ -54,12 +54,38 @@
 /*
  * TAP instructions for Elvees JTAG.
  */
-#define TAP_IDCODE		0x03	/* Select the ID register */
+//#define TAP_IDCODE		0x03	/* Select the ID register */
+#define TAP_IDCODE		0x0E	/* ARM7 */
 #define TAP_DEBUG_REQUEST	0x04	/* Stop processor */
 #define TAP_DEBUG_ENABLE	0x05	/* Put processor in debug mode */
 #define TAP_BYPASS		0x0F	/* Select the BYPASS register */
 
-static struct ftdi_context adapter;
+/*
+ * USB endpoints.
+ */
+#define IN_EP			0x02
+#define OUT_EP			0x81
+
+#define MAXPKTSZ		64
+
+/* Requests */
+#define SIO_RESET		0 /* Reset the port */
+#define SIO_MODEM_CTRL		1 /* Set the modem control register */
+#define SIO_SET_FLOW_CTRL	2 /* Set flow control register */
+#define SIO_SET_BAUD_RATE	3 /* Set baud rate */
+#define SIO_SET_DATA		4 /* Set the data characteristics of the port */
+#define SIO_POLL_MODEM_STATUS	5
+#define SIO_SET_EVENT_CHAR	6
+#define SIO_SET_ERROR_CHAR	7
+#define SIO_SET_LATENCY_TIMER	9
+#define SIO_GET_LATENCY_TIMER	10
+#define SIO_SET_BITMODE		11
+#define SIO_READ_PINS		12
+#define SIO_READ_EEPROM		0x90
+#define SIO_WRITE_EEPROM	0x91
+#define SIO_ERASE_EEPROM	0x92
+
+static usb_dev_handle *adapter;
 
 int debug;
 
@@ -68,7 +94,7 @@ int debug;
  */
 int bitbang_io (int tms, int tdi)
 {
-	unsigned char data [3], input [3];
+	unsigned char data [3], reply [5];
 	int bytes_written, bytes_read, n;
 
 	data[0] = NTRST | NSYSRST;
@@ -79,43 +105,52 @@ int bitbang_io (int tms, int tdi)
 	data[1] = data[0] | TCK;
 	data[2] = data[0];
 
+	/* Write data. */
 	if (debug)
 		fprintf (stderr, "bitbang_io() write %u bytes\n",
 			(unsigned) sizeof(data));
-	bytes_written = ftdi_write_data (&adapter, data, sizeof(data));
-	if (bytes_written < 0) {
-		fprintf (stderr, "ftdi_write_data: %s\n", ftdi_get_error_string(&adapter));
+	bytes_written = 0;
+write_more:
+	n = usb_bulk_write (adapter, IN_EP, (char*) data + bytes_written,
+		sizeof(data) - bytes_written, 1000);
+        if (n < 0) {
+		fprintf (stderr, "bitbang_io(): usb bulk write failed\n");
 		exit (1);
 	}
-	if (bytes_written != sizeof(data)) {
-		fprintf (stderr, "ftdi_write_data: written %d bytes, expected %u\n",
-			bytes_written, (unsigned) sizeof(data));
-		exit (1);
-	}
+	bytes_written += n;
+	if (bytes_written < sizeof(data))
+		goto write_more;
+
+	/* Get reply. */
 	bytes_read = 0;
 again:
-	adapter.readbuffer_remaining = 0;
-	n = ftdi_read_data (&adapter, input + bytes_read, sizeof(input) - bytes_read);
+	n = usb_bulk_read (adapter, OUT_EP, (char*) reply + bytes_read,
+		sizeof(reply) - bytes_read, 1000);
 	if (n < 0) {
-		fprintf (stderr, "bitbang_io(): read failed\n");
+		fprintf (stderr, "bitbang_io(): usb bulk read failed\n");
 		exit (1);
 	}
 	if (debug)
 		fprintf (stderr, "bitbang_io() got %d bytes\n", n);
 	bytes_read += n;
-	if (bytes_read < sizeof(input))
+	if (bytes_read < sizeof(reply))
 		goto again;
-	/*fprintf (stderr, "bitbang_io() got %02x %02x %s\n",
-		input[0], input[1], (input[1] & READ_TDO) ? "TDO" : "");*/
-	return (input[1] & READ_TDO) != 0;
+	if (debug)
+		fprintf (stderr, "bitbang_io() got %02x %02x %02x %02x %02x %s\n",
+			reply[0], reply[1], reply[2], reply[3], reply[4],
+			(reply[3] & READ_TDO) ? "TDO" : "");
+	return (reply[3] & READ_TDO) != 0;
 }
 
 void bitbang_close (void)
 {
 	/* Setup default value of signals. */
 	bitbang_io (1, 1);
-	ftdi_usb_close (&adapter);
-	ftdi_deinit (&adapter);
+
+        if (usb_release_interface (adapter, 0) != 0) {
+		fprintf (stderr, "bitbang_close() usb release interface failed\n");
+	}
+	usb_close (adapter);
 }
 
 /*
@@ -123,21 +158,59 @@ void bitbang_close (void)
  */
 void bitbang_init (void)
 {
-	if (ftdi_init (&adapter) < 0)
-		exit (1);
+	struct usb_bus *bus;
+	struct usb_device *dev;
 
-	if (ftdi_usb_open (&adapter, BITBANG_VID, BITBANG_PID) < 0) {
-		fprintf (stderr, "unable to open ftdi device with vid=%04x, pid=%04x\n",
-			BITBANG_VID, BITBANG_PID);
-		fprintf (stderr, "%s", adapter.error_str);
+	usb_init();
+	usb_find_busses();
+	usb_find_devices();
+	for (bus = usb_get_busses(); bus; bus = bus->next) {
+		for (dev = bus->devices; dev; dev = dev->next) {
+			if (dev->descriptor.idVendor == BITBANG_VID &&
+			    dev->descriptor.idProduct == BITBANG_PID)
+				goto found;
+		}
+	}
+	fprintf (stderr, "USB adapter not found: vid=%04x, pid=%04x\n",
+		BITBANG_VID, BITBANG_PID);
+	exit (1);
+found:
+	adapter = usb_open (dev);
+	if (! adapter) {
+		fprintf (stderr, "usb_open() failed\n");
+		exit (1);
+	}
+	usb_claim_interface (adapter, 0);
+
+	/* Reset the ftdi device. */
+	if (usb_control_msg (adapter,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "FTDI reset failed\n");
 		exit (1);
 	}
 
-	if (ftdi_usb_reset (&adapter) < 0) {
-		fprintf (stderr, "unable to reset ftdi device\n");
+	/* Sync bit bang mode. */
+	if (usb_control_msg (adapter,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_BITMODE, TCK | TDI | TMS | NTRST | NSYSRST | 0x400,
+	    0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "Can't set sync bitbang mode\n");
 		exit (1);
 	}
 
+	unsigned divisor = (6000000 + BITBANG_SPEED/2) / BITBANG_SPEED;
+	int baud = 6000000 / divisor;
+	fprintf (stderr, "speed %d bits/sec\n", baud);
+
+	if (usb_control_msg (adapter,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_BAUD_RATE, (unsigned short) divisor,
+	    (unsigned short) (divisor >> 16), 0, 0, 1000) != 0) {
+		fprintf (stderr, "Can't set baud rate\n");
+		exit (1);
+	}
+#if 0
 	unsigned char latency_timer;
 	if (ftdi_set_latency_timer (&adapter, 2) < 0) {
 		fprintf (stderr, "unable to set latency timer\n");
@@ -149,21 +222,7 @@ void bitbang_init (void)
 		exit (1);
 	}
 	fprintf (stderr, "current latency timer: %u\n", latency_timer);
-	adapter.usb_write_timeout = 1000;
-	adapter.usb_read_timeout = 1000;
-
-	/* Sync bit bang mode. */
-	ftdi_set_bitmode (&adapter, TCK | TDI | TMS | NTRST | NSYSRST, BITMODE_RESET);
-	ftdi_set_bitmode (&adapter, TCK | TDI | TMS | NTRST | NSYSRST, BITMODE_SYNCBB);
-
-	int baud = BITBANG_SPEED / 16;
-	fprintf (stderr, "speed %d x 16 bits/sec\n", baud);
-
-	if (ftdi_set_baudrate (&adapter, baud) < 0) {
-		fprintf (stderr, "Can't set baud rate: %s\n",
-			ftdi_get_error_string(&adapter));
-		exit (1);
-	}
+#endif
 	/* Reset the JTAG TAP controller. */
 	bitbang_io (1, 1);
 	bitbang_io (1, 1);
