@@ -1311,7 +1311,7 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 			word >>= 8;
 		}
 		byte = word;
-fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
+//fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
 
 		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
 				   mc->flash_cmd_55, base + mc->flash_addr_even);
