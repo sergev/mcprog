@@ -49,7 +49,7 @@
  */
 #define BITBANG_VID		0x0403
 #define BITBANG_PID		0x6001
-#define BITBANG_SPEED		100000
+#define BITBANG_SPEED		16000000
 
 /*
  * TAP instructions for Elvees JTAG.
@@ -106,9 +106,6 @@ int bitbang_io (int tms, int tdi)
 	data[2] = data[0];
 
 	/* Write data. */
-	if (debug)
-		fprintf (stderr, "bitbang_io() write %u bytes\n",
-			(unsigned) sizeof(data));
 	bytes_written = 0;
 write_more:
 	n = usb_bulk_write (adapter, IN_EP, (char*) data + bytes_written,
@@ -117,24 +114,26 @@ write_more:
 		fprintf (stderr, "bitbang_io(): usb bulk write failed\n");
 		exit (1);
 	}
+	/*if (debug)
+		fprintf (stderr, "bitbang_io() write %u bytes\n", n);*/
 	bytes_written += n;
 	if (bytes_written < sizeof(data))
 		goto write_more;
 
 	/* Get reply. */
-	bytes_read = 0;
-again:
-	n = usb_bulk_read (adapter, OUT_EP, (char*) reply + bytes_read,
-		sizeof(reply) - bytes_read, 1000);
-	if (n < 0) {
+	bytes_read = usb_bulk_read (adapter, OUT_EP, (char*) reply,
+		sizeof(reply), 2000);
+	if (bytes_read != sizeof(reply)) {
 		fprintf (stderr, "bitbang_io(): usb bulk read failed\n");
+		switch (bytes_read) {
+		case 0: fprintf (stderr, "bitbang_io() empty read\n"); break;
+		case 1: fprintf (stderr, "bitbang_io() got 1 byte: %02x\n", reply[bytes_read]); break;
+		case 2: fprintf (stderr, "bitbang_io() got 2 bytes: %02x %02x\n", reply[bytes_read], reply[bytes_read+1]); break;
+		case 3: fprintf (stderr, "bitbang_io() got 3 bytes: %02x %02x %02x\n", reply[bytes_read], reply[bytes_read+1], reply[bytes_read+2]); break;
+		case 4: fprintf (stderr, "bitbang_io() got 4 bytes: %02x %02x %02x %02x\n", reply[bytes_read], reply[bytes_read+1], reply[bytes_read+2], reply[bytes_read+3]); break;
+		}
 		exit (1);
 	}
-	if (debug)
-		fprintf (stderr, "bitbang_io() got %d bytes\n", n);
-	bytes_read += n;
-	if (bytes_read < sizeof(reply))
-		goto again;
 	if (debug)
 		fprintf (stderr, "bitbang_io() got %02x %02x %02x %02x %02x %s\n",
 			reply[0], reply[1], reply[2], reply[3], reply[4],
@@ -199,8 +198,8 @@ found:
 		exit (1);
 	}
 
-	unsigned divisor = (6000000 + BITBANG_SPEED/2) / BITBANG_SPEED;
-	int baud = 6000000 / divisor;
+	unsigned divisor = (3000000 + BITBANG_SPEED/32) / (BITBANG_SPEED/16);
+	int baud = 3000000 / divisor * 16;
 	fprintf (stderr, "speed %d bits/sec\n", baud);
 
 	if (usb_control_msg (adapter,
@@ -210,19 +209,22 @@ found:
 		fprintf (stderr, "Can't set baud rate\n");
 		exit (1);
 	}
-#if 0
-	unsigned char latency_timer;
-	if (ftdi_set_latency_timer (&adapter, 2) < 0) {
+
+	unsigned char latency_timer = 8;
+	if (usb_control_msg (adapter,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
 		fprintf (stderr, "unable to set latency timer\n");
 		exit (1);
 	}
-
-	if (ftdi_get_latency_timer (&adapter, &latency_timer) < 0) {
+	if (usb_control_msg (adapter,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_IN,
+	    SIO_GET_LATENCY_TIMER, 0, 0, (char*) &latency_timer, 1, 1000) != 1) {
 		fprintf (stderr, "unable to get latency timer\n");
 		exit (1);
 	}
 	fprintf (stderr, "current latency timer: %u\n", latency_timer);
-#endif
+
 	/* Reset the JTAG TAP controller. */
 	bitbang_io (1, 1);
 	bitbang_io (1, 1);
