@@ -49,13 +49,12 @@
  */
 #define BITBANG_VID		0x0403
 #define BITBANG_PID		0x6001
-#define BITBANG_SPEED		16000000
 
 /*
  * TAP instructions for Elvees JTAG.
  */
-//#define TAP_IDCODE		0x03	/* Select the ID register */
-#define TAP_IDCODE		0x0E	/* ARM7 */
+#define TAP_IDCODE		0x03	/* Select the ID register */
+//#define TAP_IDCODE		0x0E	/* ARM7 */
 #define TAP_DEBUG_REQUEST	0x04	/* Stop processor */
 #define TAP_DEBUG_ENABLE	0x05	/* Put processor in debug mode */
 #define TAP_BYPASS		0x0F	/* Select the BYPASS register */
@@ -198,19 +197,22 @@ found:
 		exit (1);
 	}
 
-	unsigned divisor = (3000000 + BITBANG_SPEED/32) / (BITBANG_SPEED/16);
-	int baud = 3000000 / divisor * 16;
-	fprintf (stderr, "speed %d bits/sec\n", baud);
+	/* Ровно 500 нсек между выдачами. */
+	unsigned divisor = 1;
+	unsigned char latency_timer = 1;
 
+	int baud = 3000000 / divisor * 16;
+	fprintf (stderr, "Speed %d samples/sec\n", baud);
+
+	/* Frequency divisor is 14-bit non-zero value. */
 	if (usb_control_msg (adapter,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_BAUD_RATE, (unsigned short) divisor,
-	    (unsigned short) (divisor >> 16), 0, 0, 1000) != 0) {
+	    SIO_SET_BAUD_RATE, divisor,
+	    0, 0, 0, 1000) != 0) {
 		fprintf (stderr, "Can't set baud rate\n");
 		exit (1);
 	}
 
-	unsigned char latency_timer = 8;
 	if (usb_control_msg (adapter,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
 	    SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
@@ -223,7 +225,7 @@ found:
 		fprintf (stderr, "unable to get latency timer\n");
 		exit (1);
 	}
-	fprintf (stderr, "current latency timer: %u\n", latency_timer);
+	fprintf (stderr, "Latency timer: %u usec\n", latency_timer);
 
 	/* Reset the JTAG TAP controller. */
 	bitbang_io (1, 1);
@@ -417,17 +419,10 @@ usage:		printf ("Test for FT232R JTAG adapter.\n");
 			bitbang_close ();
 
 		} else if (strcmp ("idcode", argv[0]) == 0) {
+			int i;
 			bitbang_init ();
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
-			printf ("IDCODE = %08x\n", tap_read_idcode());
+			for (i=0; i<1000000; ++i)
+				printf ("IDCODE = %08x\n", tap_read_idcode());
 			bitbang_close ();
 		} else
 			goto usage;
