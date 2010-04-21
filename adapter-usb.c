@@ -27,11 +27,11 @@
 #   include <libusb-1.0/libusb.h>
 #endif
 
-#include "multicore.h"
+#include "target.h"
 
 #define NFLASH		16	/* Max flash regions. */
 
-struct _multicore_t {
+struct _target_t {
 	char		*cpu_name;
 	unsigned 	idcode;
 	unsigned	flash_width;
@@ -864,7 +864,7 @@ void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsign
 /*
  * Установка доступа к аппаратным портам ввода-вывода.
  */
-void multicore_init ()
+void target_init ()
 {
 	if (libusb_init (NULL) < 0) {
 		fprintf (stderr, "Failed to initialize libusb.\n");
@@ -875,11 +875,11 @@ void multicore_init ()
 /*
  * Open the device.
  */
-multicore_t *multicore_open ()
+target_t *target_open ()
 {
-	multicore_t *mc;
+	target_t *mc;
 
-	mc = calloc (1, sizeof (multicore_t));
+	mc = calloc (1, sizeof (target_t));
 	if (! mc) {
 		fprintf (stderr, "Out of memory\n");
 		exit (-1);
@@ -902,7 +902,7 @@ multicore_t *multicore_open ()
 		else
 			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
 				mc->idcode);
-		multicore_close (mc);
+		target_close (mc);
 		exit (1);
 	case MC12_ID:
 		mc->cpu_name = "MC12";
@@ -918,7 +918,7 @@ multicore_t *multicore_open ()
 /*
  * Close the device.
  */
-void multicore_close (multicore_t *mc)
+void target_close (target_t *mc)
 {
 	unsigned oscr;
         int i;
@@ -953,7 +953,7 @@ void multicore_close (multicore_t *mc)
 /*
  * Add a flash region.
  */
-void multicore_flash_configure (multicore_t *mc, unsigned first, unsigned last)
+void target_flash_configure (target_t *mc, unsigned first, unsigned last)
 {
 	int i;
 
@@ -966,14 +966,14 @@ void multicore_flash_configure (multicore_t *mc, unsigned first, unsigned last)
 			return;
 		}
 	}
-	fprintf (stderr, "multicore_flash_configure: too many flash regions.\n");
+	fprintf (stderr, "target_flash_configure: too many flash regions.\n");
 	exit (1);
 }
 
 /*
  * Iterate trough all flash regions.
  */
-unsigned multicore_flash_next (multicore_t *mc, unsigned prev, unsigned *last)
+unsigned target_flash_next (target_t *mc, unsigned prev, unsigned *last)
 {
 	int i;
 
@@ -991,17 +991,17 @@ unsigned multicore_flash_next (multicore_t *mc, unsigned prev, unsigned *last)
 	return ~0;
 }
 
-char *multicore_cpu_name (multicore_t *mc)
+char *target_cpu_name (target_t *mc)
 {
 	return mc->cpu_name;
 }
 
-unsigned multicore_idcode (multicore_t *mc)
+unsigned target_idcode (target_t *mc)
 {
 	return mc->idcode;
 }
 
-unsigned multicore_flash_width (multicore_t *mc)
+unsigned target_flash_width (target_t *mc)
 {
 	return mc->flash_width;
 }
@@ -1009,7 +1009,7 @@ unsigned multicore_flash_width (multicore_t *mc)
 /*
  * Вычисление базового адреса микросхемы flash-памяти.
  */
-static unsigned compute_base (multicore_t *mc, unsigned addr)
+static unsigned compute_base (target_t *mc, unsigned addr)
 {
 	int i;
 
@@ -1023,12 +1023,12 @@ static unsigned compute_base (multicore_t *mc, unsigned addr)
 		    addr <= mc->flash_last [i])
 			return mc->flash_base [i];
 	}
-	fprintf (stderr, "multicore: no flash region for address 0x%08X\n", addr);
+	fprintf (stderr, "target: no flash region for address 0x%08X\n", addr);
 	exit (1);
 	return 0;
 }
 
-int multicore_flash_detect (multicore_t *mc, unsigned addr,
+int target_flash_detect (target_t *mc, unsigned addr,
 	unsigned *mf, unsigned *dev, char *mfname, char *devname,
 	unsigned *bytes, unsigned *width)
 {
@@ -1229,7 +1229,7 @@ unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
 	return 1;
 }
 
-int multicore_erase (multicore_t *mc, unsigned addr)
+int target_erase (target_t *mc, unsigned addr)
 {
 	unsigned word, base;
 
@@ -1284,7 +1284,7 @@ int multicore_erase (multicore_t *mc, unsigned addr)
 /*
  * Повторная запись реализована только для 8-битной flash-памяти.
  */
-int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
+int target_flash_rewrite (target_t *mc, unsigned addr, unsigned word)
 {
 	unsigned bad, base;
 	unsigned char byte;
@@ -1298,7 +1298,7 @@ int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
 	/* Повтор записи возможен, только если не прописались нули. */
 	bad = jtag_read_word (addr);
 	if ((bad & word) != word) {
-		fprintf (stderr, "multicore: cannot rewrite word at %x\n",
+		fprintf (stderr, "target: cannot rewrite word at %x\n",
 			addr);
 		exit (1);
 	}
@@ -1334,12 +1334,12 @@ fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
 	return 1;
 }
 
-unsigned multicore_read_word (multicore_t *mc, unsigned addr)
+unsigned target_read_word (target_t *mc, unsigned addr)
 {
 	return jtag_read_word (addr);
 }
 
-void multicore_read_block (multicore_t *mc, unsigned addr,
+void target_read_block (target_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
 	if (addr >= 0xA0000000)
@@ -1357,7 +1357,7 @@ void multicore_read_block (multicore_t *mc, unsigned addr,
 	}
 }
 
-void multicore_write_block (multicore_t *mc, unsigned addr,
+void target_write_block (target_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
 	if (addr >= 0xA0000000)
@@ -1375,19 +1375,19 @@ void multicore_write_block (multicore_t *mc, unsigned addr,
 	}
 }
 
-void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
+void target_write_word (target_t *mc, unsigned addr, unsigned word)
 {
 	if (debug)
 		fprintf (stderr, "write word %08x to %08x\n", word, addr);
 	jtag_write_word (word, addr);
 }
 
-void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word)
+void target_write_next (target_t *mc, unsigned addr, unsigned word)
 {
 	jtag_write_next (word, addr);
 }
 
-void multicore_program_block (multicore_t *mc, unsigned addr,
+void target_program_block (target_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
 	unsigned base;
@@ -1397,7 +1397,7 @@ void multicore_program_block (multicore_t *mc, unsigned addr,
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
-//printf ("multicore_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, mc->flash_width, base);
+//printf ("target_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, mc->flash_width, base);
 	switch (mc->flash_width) {
 	case 8:
 		/* 8-разрядная шина. */
