@@ -694,6 +694,7 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 	oncd_write (phys_addr, OnCD_OMAR, 32);
 	oncd_write (data, OnCD_OMDR, 32);
 	oncd_write (0, OnCD_MEM, 0);
+
 	for (wait = 100000; wait != 0; wait--) {
 		oscr = oncd_read (OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
