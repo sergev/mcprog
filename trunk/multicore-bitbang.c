@@ -65,8 +65,6 @@
 #define IN_EP			0x02
 #define OUT_EP			0x81
 
-#define MAXPKTSZ		64
-
 /* Requests */
 #define SIO_RESET		0 /* Reset the port */
 #define SIO_MODEM_CTRL		1 /* Set the modem control register */
@@ -87,6 +85,12 @@
 static usb_dev_handle *adapter;
 
 int debug;
+
+/* Биты регистра IRd */
+#define	IRd_RUN		0x20	/* 0 - step mode, 1 - run continuosly */
+#define	IRd_READ	0x40	/* 0 - write, 1 - read registers */
+#define	IRd_FLUSH_PIPE	0x40	/* for EnGO: instruction pipe changed */
+#define	IRd_STEP_1CLK	0x80	/* for step mode: run for 1 clock only */
 
 /*
  * JTAG i/o.
@@ -198,10 +202,11 @@ found:
 	}
 
 	/* Ровно 500 нсек между выдачами. */
-	unsigned divisor = 1;
+	unsigned divisor = 0;
 	unsigned char latency_timer = 1;
 
-	int baud = 3000000 / divisor * 16;
+	int baud = (divisor == 0) ? 3000000 :
+		(divisor == 1) ? 2000000 : 3000000 / divisor;
 	fprintf (stderr, "Speed %d samples/sec\n", baud);
 
 	/* Frequency divisor is 14-bit non-zero value. */
@@ -281,18 +286,16 @@ int tap_instr (int nbits, unsigned newinst)
  * If newdata is NULL, zeros are sent in the data stream.
  * If olddata is NULL, readout bits are thrown away.
  */
-void tap_data (int nbits, unsigned *newdata, unsigned *olddata)
+void tap_data (int nbits, unsigned char *newdata, unsigned char *olddata)
 {
-	unsigned databits = 0;
-	unsigned mask = 1;
-	unsigned readbits = 0;
-	int bits_sent = 0;
+	unsigned databits = 0, readbits = 0;
+	unsigned char mask = 0;
 
 	tap_step (1);			/* goto Select-DR-Scan */
 	tap_step (0);			/* goto Capture-DR */
 	tap_step (0);			/* goto Shift-DR */
 	for (; nbits; --nbits) {
-		if (! (bits_sent & 31)) {	/* every 32 bits sent... */
+		if (mask == 0) {		/* every 8 bits sent... */
 			if (newdata)		/* ...get a new word */
 				databits = *newdata++;
 			mask = 1;
@@ -307,7 +310,6 @@ void tap_data (int nbits, unsigned *newdata, unsigned *olddata)
 			if (mask == 0)		/* after 32 bits, move ptr */
 				olddata++;
 		}
-		bits_sent++;
 	}
 	tap_step (1);			/* goto Update-DR */
 }
@@ -328,26 +330,14 @@ unsigned tap_read_idcode (void)
 	tap_step (0);			/* TMS=0 to enter run-test/idle */
 
 	tap_instr (4, TAP_IDCODE);	/* Select IDCODE register */
-	tap_data (32, 0, &idcode);	/* Read out 32 bits into idcode */
+	tap_data (32, 0,		/* Read out 32 bits into idcode */
+		(unsigned char*) &idcode);
 	return idcode;
-}
-
-static unsigned tap_bypass (unsigned data)
-{
-	unsigned result, mask;
-
-	result = 0;
-	mask = 1;
-	do {
-		if (bitbang_io (0, data & mask))
-			result += mask;
-	} while (mask <<= 1);
-	return result;
 }
 
 int tap_test (int iterations)
 {
-	unsigned test, last_bit = 0;
+	unsigned result, mask, last_bit = 0;
 	unsigned pattern = 0;
 
 	tap_instr (4, TAP_BYPASS);	/* Enter BYPASS mode. */
@@ -356,11 +346,19 @@ int tap_test (int iterations)
 	tap_step (0);			/* goto Shift-DR */
 	do {
 		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
-		test = tap_bypass (pattern);
+
+		/* Pass the pattern through TDI-TDO. */
+		result = 0;
+		mask = 1;
+		do {
+			if (bitbang_io (0, pattern & mask))
+				result += mask;
+		} while (mask <<= 1);
+
 		fprintf (stderr, "tap_test sent %08x received %08x\n",
-			pattern<<1 | last_bit, test);
-		if ((test & 1) != last_bit ||
-		    (test >> 1) != (pattern & 0x7FFFFFFFul)) {
+			pattern<<1 | last_bit, result);
+		if ((result & 1) != last_bit ||
+		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {
 			/* Reset the JTAG TAP controller. */
 			tap_step (1);
 			tap_step (1);
@@ -376,6 +374,41 @@ int tap_test (int iterations)
 	tap_step (1);			/* goto Update-DR */
 	tap_step (0);			/* Run-Test/idle => exec instr. */
 	return 1;
+}
+
+/*
+ * Чтение регистра OnCD.
+ */
+unsigned oncd_read (int reg, int reglen)
+{
+	unsigned char data[5];
+	unsigned value;
+
+	data[0] = reg | IRd_READ;
+	data[1] = 0;
+	data[2] = 0;
+	data[3] = 0;
+	data[4] = 0;
+	tap_data (8 + reglen, data, data);
+	value = data[1] | data[2] << 8 | data[3] << 16 | data[4] << 24;
+	return value;
+}
+
+/*
+ * Запись регистра OnCD.
+ */
+void oncd_write (unsigned value, int reg, int reglen)
+{
+	unsigned char data[5];
+
+	data[0] = reg;
+	if (reglen > 0) {
+		data[1] = value;
+		data[2] = value >> 8;
+		data[3] = value >> 16;
+		data[4] = value >> 24;
+	}
+	tap_data (8 + reglen, data, 0);
 }
 
 #ifdef STANDALONE
