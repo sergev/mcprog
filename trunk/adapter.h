@@ -41,4 +41,9 @@ struct _adapter_t {
 		unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0);
 };
 
-extern void mdelay (unsigned msec);
+adapter_t *adapter_open_usb (void);
+adapter_t *adapter_open_lpt (void);
+adapter_t *adapter_open_bitbang (void);
+
+void mdelay (unsigned msec);
+extern int debug;

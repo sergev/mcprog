@@ -22,10 +22,13 @@
 #include <errno.h>
 
 #include "target.h"
+#include "adapter.h"
+#include "oncd.h"
 
 #define NFLASH		16	/* Max flash regions. */
 
 struct _target_t {
+	adapter_t	*adapter;
 	char		*cpu_name;
 	unsigned 	idcode;
 	unsigned	cscon3;		/* Регистр конфигурации flash-памяти */
@@ -84,6 +87,9 @@ struct _target_t {
 #define MC12_ID			0x20777001
 #define MC12REV1_ID		0x30777001
 
+#define MC_CSCON3		0x182F100C
+#define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
+
 #if defined (__CYGWIN32__) || defined (MINGW32)
 /*
  * Задержка в миллисекундах: Windows.
@@ -111,17 +117,20 @@ static void target_exec (target_t *t, unsigned instr)
 {
 	/* Restore PCfetch to right address or
 	 * we can go in exception. */
-	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
+	t->adapter->oncd_write (t->adapter,
+		0xBFC00000, OnCD_PCfetch, 32);
 
 	/* Supply instruction to pipeline and do step */
-	oncd_write (instr, OnCD_IRdec, 32);
-	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK, 0);
+	t->adapter->oncd_write (t->adapter,
+		instr, OnCD_IRdec, 32);
+	t->adapter->oncd_write (t->adapter,
+		0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK, 0);
 }
 
 /*
  * Запись слова в память.
  */
-void jtag_write_next (unsigned data, unsigned phys_addr)
+void target_write_next (target_t *t, unsigned data, unsigned phys_addr)
 {
 	unsigned wait, oscr;
 
@@ -130,12 +139,12 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
 //fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
-	oncd_write (phys_addr, OnCD_OMAR, 32);
-	oncd_write (data, OnCD_OMDR, 32);
-	oncd_write (0, OnCD_MEM, 0);
+	t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
+	t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
+	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
 
 	for (wait = 1000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR, 32);
+		oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
 		mdelay (1);
@@ -146,33 +155,33 @@ void jtag_write_next (unsigned data, unsigned phys_addr)
 	}
 }
 
-void jtag_write_word (unsigned data, unsigned phys_addr)
+void target_write_word (target_t *t, unsigned data, unsigned phys_addr)
 {
 	unsigned oscr;
 
 	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_SlctMEM;
 	oscr &= ~OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR, 32);
+	t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 
-	jtag_write_next (data, phys_addr);
+	target_write_next (t, data, phys_addr);
 }
 
 /*
  * Чтение слова из памяти.
  */
-void jtag_read_start ()
+void target_read_start (target_t *t)
 {
 	unsigned oscr;
 
 	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr = t->adapter->oncd_read (t->adapter,OnCD_OSCR, 32);
 	oscr |= OSCR_SlctMEM | OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR, 32);
+	t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 }
 
-unsigned jtag_read_next (unsigned phys_addr)
+unsigned target_read_next (target_t *t, unsigned phys_addr)
 {
 	unsigned wait, oscr, data;
 
@@ -181,10 +190,10 @@ unsigned jtag_read_next (unsigned phys_addr)
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
 
-	oncd_write (phys_addr, OnCD_OMAR, 32);
-	oncd_write (0, OnCD_MEM, 0);
+	t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
+	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
 	for (wait = 1000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR, 32);
+		oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
 		mdelay (1);
@@ -193,30 +202,55 @@ unsigned jtag_read_next (unsigned phys_addr)
 		fprintf (stderr, "Timeout reading memory, aborted.\n");
 		exit (1);
 	}
-	data = oncd_read (OnCD_OMDR, 32);
+	data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
 //fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
 	return data;
 }
 
-unsigned jtag_read_word (unsigned phys_addr)
+unsigned target_read_word (target_t *t, unsigned phys_addr)
 {
-	jtag_read_start ();
-	return jtag_read_next (phys_addr);
+	target_read_start (t);
+	return target_read_next (t, phys_addr);
 }
 
-void jtag_write_byte (unsigned data, unsigned addr)
+void target_write_nwords (target_t *t, unsigned nwords, ...)
 {
-	usb_write_nwords (2, t->cscon3 | MC_CSCON3_ADDR (addr), MC_CSCON3,
-		data, addr);
+	if (t->adapter->write_nwords) {
+		t->adapter->write_nwords (t->adapter, nwords, ...);
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_write_nwords() not implemented yet.\n");
+	exit (-1);
 }
 
-void jtag_write_2bytes (unsigned data1, unsigned addr1,
+void target_write_byte (target_t *t, unsigned data, unsigned addr)
+{
+	if (t->adapter->write_nwords) {
+		t->adapter->write_nwords (t->adapter, 2,
+			t->cscon3 | MC_CSCON3_ADDR (addr), MC_CSCON3,
+			data, addr);
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_write_byte() not implemented yet.\n");
+	exit (-1);
+}
+
+void target_write_2bytes (target_t *t, unsigned data1, unsigned addr1,
 	unsigned data2, unsigned addr2)
 {
-	usb_write_nwords (4, t->cscon3 | MC_CSCON3_ADDR (addr1),
-		MC_CSCON3, data1, addr1,
-		t->cscon3 | MC_CSCON3_ADDR (addr2),
-		MC_CSCON3, data2, addr2);
+	if (t->adapter->write_nwords) {
+		t->adapter->write_nwords (t->adapter, 4,
+			t->cscon3 | MC_CSCON3_ADDR (addr1),
+			MC_CSCON3, data1, addr1,
+			t->cscon3 | MC_CSCON3_ADDR (addr2),
+			MC_CSCON3, data2, addr2);
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_write_2bytes() not implemented yet.\n");
+	exit (-1);
 }
 
 /*
@@ -270,7 +304,7 @@ target_t *target_open ()
 		break;
 	}
 	t->adapter->stop_cpu (t->adapter);
-	t->cscon3 = jtag_read_word (MC_CSCON3) & ~MC_CSCON3_ADDR (3);
+	t->cscon3 = target_read_word (t, MC_CSCON3) & ~MC_CSCON3_ADDR (3);
 	return t;
 }
 
@@ -294,17 +328,18 @@ void target_close (target_t *t)
 	}
 
 	/* Setup IRdec and PCfetch */
-	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
-	oncd_write (0x20, OnCD_IRdec, 32);
+	t->adapter->oncd_write (t->adapter, 0xBFC00000, OnCD_PCfetch, 32);
+	t->adapter->oncd_write (t->adapter, 0x20, OnCD_IRdec, 32);
 
 	/* Flush CPU pipeline at exit */
-	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 	oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
 	oscr |= OSCR_MPE;
-	oncd_write (oscr, OnCD_OSCR, 32);
+	t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 
 	/* Exit */
-	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN, 0);
+	t->adapter->oncd_write (t->adapter,
+		0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN, 0);
 
 	t->adapter->close (t->adapter);
 }
@@ -480,41 +515,41 @@ int target_flash_detect (target_t *t, unsigned addr,
 		/* Read device code. */
 		if (t->flash_width == 8) {
 			/* Byte-wide data bus. */
-			jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
-			jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
-			jtag_write_byte (t->flash_cmd_90, base + t->flash_addr_odd);
-			*mf = jtag_read_word (base);
+			target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+			target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
+			target_write_byte (t, t->flash_cmd_90, base + t->flash_addr_odd);
+			*mf = target_read_word (t, base);
 			*dev = (unsigned char) (*mf >> 8);
 			*mf = (unsigned char) *mf;
 
 			/* Stop read ID mode. */
-			jtag_write_byte (t->flash_cmd_f0, base);
+			target_write_byte (t, t->flash_cmd_f0, base);
 		} else if (t->flash_delay) {
 			/* Word-wide data bus. */
 			mdelay (t->flash_delay);
-			jtag_write_nwords (3, t->flash_cmd_aa, base + t->flash_addr_odd,
+			target_write_nwords (t, 3, t->flash_cmd_aa, base + t->flash_addr_odd,
 				t->flash_cmd_55, base + t->flash_addr_even,
 				t->flash_cmd_90, base + t->flash_addr_odd);
 			mdelay (t->flash_delay);
-			*mf = jtag_read_word (base);
-			*dev = jtag_read_word (base + t->flash_devid_offset);
+			*mf = target_read_word (t, base);
+			*dev = target_read_word (t, base + t->flash_devid_offset);
 			//printf ("base = %08X, dev = %08X, mf = %08X\n", base, *dev, *mf);
 
 			/* Stop read ID mode. */
-			jtag_write_nwords (3, t->flash_cmd_aa, base + t->flash_addr_odd,
+			target_write_nwords (t, 3, t->flash_cmd_aa, base + t->flash_addr_odd,
 				t->flash_cmd_55, base + t->flash_addr_even,
 				t->flash_cmd_f0, base + t->flash_addr_odd);
 			mdelay (t->flash_delay);
 		} else {
 			/* Word-wide data bus. */
-			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
-			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
-			jtag_write_word (t->flash_cmd_90, base + t->flash_addr_odd);
-			*dev = jtag_read_word (base + t->flash_devid_offset);
-			*mf = jtag_read_word (base);
+			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
+			target_write_word (t, t->flash_cmd_90, base + t->flash_addr_odd);
+			*dev = target_read_word (t, base + t->flash_devid_offset);
+			*mf = target_read_word (t, base);
 
 			/* Stop read ID mode. */
-			jtag_write_word (t->flash_cmd_f0, base);
+			target_write_word (t, t->flash_cmd_f0, base);
 		}
 
 		if (debug > 1)
@@ -596,40 +631,40 @@ int target_erase (target_t *t, unsigned addr)
 	printf ("Erase: %08X", base);
 	if (t->flash_width == 8) {
 		/* 8-разрядная шина. */
-		jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
-		jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_byte (t->flash_cmd_80, base + t->flash_addr_odd);
-		jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
-		jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_byte (t->flash_cmd_10, base + t->flash_addr_odd);
+		target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+		target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
+		target_write_byte (t, t->flash_cmd_80, base + t->flash_addr_odd);
+		target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+		target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
+		target_write_byte (t, t->flash_cmd_10, base + t->flash_addr_odd);
 	} else if (t->flash_delay) {
-		jtag_write_nwords (6, t->flash_cmd_aa, base + t->flash_addr_odd,
+		target_write_nwords (t, 6, t->flash_cmd_aa, base + t->flash_addr_odd,
 			t->flash_cmd_55, base + t->flash_addr_even,
 			t->flash_cmd_80, base + t->flash_addr_odd,
 			t->flash_cmd_aa, base + t->flash_addr_odd,
 			t->flash_cmd_55, base + t->flash_addr_even,
 			t->flash_cmd_10, base + t->flash_addr_odd);
 	} else {
-		jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
-		jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_word (t->flash_cmd_80, base + t->flash_addr_odd);
-		jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
-		jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_word (t->flash_cmd_10, base + t->flash_addr_odd);
+		target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+		target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
+		target_write_word (t, t->flash_cmd_80, base + t->flash_addr_odd);
+		target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
+		target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
+		target_write_word (t, t->flash_cmd_10, base + t->flash_addr_odd);
 		if (t->flash_width == 64) {
 			/* Старшая половина 64-разрядной шины. */
-			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd + 4);
-			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even + 4);
-			jtag_write_word (t->flash_cmd_80, base + t->flash_addr_odd + 4);
-			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd + 4);
-			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even + 4);
-			jtag_write_word (t->flash_cmd_10, base + t->flash_addr_odd + 4);
+			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd + 4);
+			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even + 4);
+			target_write_word (t, t->flash_cmd_80, base + t->flash_addr_odd + 4);
+			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd + 4);
+			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even + 4);
+			target_write_word (t, t->flash_cmd_10, base + t->flash_addr_odd + 4);
 		}
 	}
 	for (;;) {
 		fflush (stdout);
 		mdelay (250);
-		word = jtag_read_word (base);
+		word = target_read_word (t, base);
 		if (word == 0xffffffff)
 			break;
 		printf (".");
@@ -654,7 +689,7 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 		addr -= 0x80000000;
 
 	/* Повтор записи возможен, только если не прописались нули. */
-	bad = jtag_read_word (addr);
+	bad = target_read_word (t, addr);
 	if ((bad & word) != word) {
 		fprintf (stderr, "target: cannot rewrite word at %x\n",
 			addr);
@@ -671,9 +706,9 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 		byte = word;
 //fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
 
-		jtag_write_2bytes (t->flash_cmd_aa, base + t->flash_addr_odd,
+		target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
 				   t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_2bytes (t->flash_cmd_a0, base + t->flash_addr_odd,
+		target_write_2bytes (t, t->flash_cmd_a0, base + t->flash_addr_odd,
 				   byte, addr);
 		break;
 	case 64:
@@ -683,18 +718,13 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 		if (t->flash_delay)
 			return 0;
 fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
-		jtag_write_nwords (4, t->flash_cmd_aa, base + t->flash_addr_odd,
+		target_write_nwords (t, 4, t->flash_cmd_aa, base + t->flash_addr_odd,
 				   t->flash_cmd_55, base + t->flash_addr_even,
 				   t->flash_cmd_a0, base + t->flash_addr_odd,
 				   word, addr);
 		break;
 	}
 	return 1;
-}
-
-unsigned target_read_word (target_t *t, unsigned addr)
-{
-	return jtag_read_word (addr);
 }
 
 void target_read_block (target_t *t, unsigned addr,
@@ -740,11 +770,6 @@ void target_write_word (target_t *t, unsigned addr, unsigned word)
 	jtag_write_word (word, addr);
 }
 
-void target_write_next (target_t *t, unsigned addr, unsigned word)
-{
-	jtag_write_next (word, addr);
-}
-
 void target_program_block (target_t *t, unsigned addr,
 	unsigned nwords, unsigned *data)
 {
@@ -760,18 +785,18 @@ void target_program_block (target_t *t, unsigned addr,
 	case 8:
 		/* 8-разрядная шина. */
 		/* Unlock bypass. */
-		jtag_write_2bytes (t->flash_cmd_aa, base + t->flash_addr_odd,
+		target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
 				   t->flash_cmd_55, base + t->flash_addr_even);
-		jtag_write_byte (t->flash_cmd_20, base + t->flash_addr_odd);
+		target_write_byte (t, t->flash_cmd_20, base + t->flash_addr_odd);
 		while (nwords-- > 0) {
 			unsigned word = *data++;
-			jtag_write_2bytes (t->flash_cmd_a0, base, word, addr++);
-			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 8, addr++);
-			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 16, addr++);
-			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 24, addr++);
+			target_write_2bytes (t, t->flash_cmd_a0, base, word, addr++);
+			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 8, addr++);
+			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 16, addr++);
+			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 24, addr++);
 		}
 		/* Reset unlock bypass. */
-		jtag_write_2bytes (t->flash_cmd_90, base, 0, base);
+		target_write_2bytes (t, t->flash_cmd_90, base, 0, base);
 		break;
 	case 32:
 		if (t->flash_delay) {

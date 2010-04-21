@@ -49,9 +49,6 @@ struct _multicore_t {
  */
 static unsigned cscon3;
 
-#define MC_CSCON3		0x182F100C
-#define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
-
 /* Идентификатор производителя flash. */
 #define ID_ALLIANCE		0x00520052
 #define ID_AMD			0x00010001

@@ -31,8 +31,6 @@
 #   include <libusb-1.0/libusb.h>
 #endif
 
-extern int debug;
-
 typedef struct {
 	/* Общая часть. */
 	adapter_t adapter;
@@ -43,9 +41,6 @@ typedef struct {
 	/* Версия аппаратной прошивки адаптера. */
 	unsigned hw_version;
 } usb_adapter_t;
-
-#define MC_CSCON3		0x182F100C
-#define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
 
 /* Endpoints for USB-JTAG adapter. */
 #define BULK_WRITE_ENDPOINT	2
