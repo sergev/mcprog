@@ -2,7 +2,7 @@ CC		= gcc
 CFLAGS		= -Wall -g -I/opt/local/include #-O
 #OBJS		= adapter-lpt.o conf.o
 
-OBJS		= adapter-usb.o conf.o
+OBJS		= adapter-usb.o target.o conf.o
 LIBS		= -L/opt/local/lib -lusb-1.0
 
 all:		mcprog adapter-bitbang

@@ -1,0 +1,820 @@
+/*
+ * Интерфейс через JTAG к процессору Элвис Мультикор.
+ * Автор: С.Вакуленко.
+ *
+ * Этот файл распространяется в надежде, что он окажется полезным, но
+ * БЕЗ КАКИХ БЫ ТО НИ БЫЛО ГАРАНТИЙНЫХ ОБЯЗАТЕЛЬСТВ; в том числе без косвенных
+ * гарантийных обязательств, связанных с ПОТРЕБИТЕЛЬСКИМИ СВОЙСТВАМИ и
+ * ПРИГОДНОСТЬЮ ДЛЯ ОПРЕДЕЛЕННЫХ ЦЕЛЕЙ.
+ *
+ * Вы вправе распространять и/или изменять этот файл в соответствии
+ * с условиями Генеральной Общественной Лицензии GNU (GPL) в том виде,
+ * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
+ * либо (по вашему желанию) любой более поздней версии. Подробности
+ * смотрите в прилагаемом файле 'COPYING.txt'.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include <time.h>
+#include <unistd.h>
+#include <errno.h>
+
+#include "target.h"
+
+#define NFLASH		16	/* Max flash regions. */
+
+struct _target_t {
+	char		*cpu_name;
+	unsigned 	idcode;
+	unsigned	cscon3;		/* Регистр конфигурации flash-памяти */
+	unsigned	flash_width;
+	unsigned	flash_bytes;
+	unsigned	flash_addr_odd;
+	unsigned	flash_addr_even;
+	unsigned	flash_cmd_aa;
+	unsigned	flash_cmd_55;
+	unsigned	flash_cmd_10;
+	unsigned	flash_cmd_20;
+	unsigned	flash_cmd_80;
+	unsigned	flash_cmd_90;
+	unsigned	flash_cmd_a0;
+	unsigned	flash_cmd_f0;
+	unsigned	flash_devid_offset;
+	unsigned	flash_base [NFLASH];
+	unsigned	flash_last [NFLASH];
+	unsigned	flash_delay;
+};
+
+/* Идентификатор производителя flash. */
+#define ID_ALLIANCE		0x00520052
+#define ID_AMD			0x00010001
+#define ID_SST			0x00BF00BF
+#define ID_MILANDR		0x01010101
+#define ID_ANGSTREM		0xBFBFBFBF
+
+/* Идентификатор микросхемы flash. */
+#define ID_29LV800_B		0x225b225b
+#define ID_29LV800_T		0x22da22da
+#define ID_39VF800_A		0x27812781
+#define ID_39VF6401_B		0x236d236d
+#define ID_1636PP2Y		0xc8c8c8c8
+#define ID_1638PP1		0x07070707
+
+/* Команды flash. */
+#define FLASH_CMD16_AA		0x00AA00AA
+#define FLASH_CMD8_AA		0xAAAAAAAA
+#define FLASH_CMD16_55		0x00550055
+#define FLASH_CMD8_55		0x55555555
+#define FLASH_CMD16_10		0x00100010	/* Chip erase 2/2 */
+#define FLASH_CMD8_10		0x10101010
+#define FLASH_CMD16_20		0x00200020	/* Unlock bypass */
+#define FLASH_CMD8_20		0x20202020
+#define FLASH_CMD16_80		0x00800080	/* Chip erase 1/2 */
+#define FLASH_CMD8_80		0x80808080
+#define FLASH_CMD16_90		0x00900090	/* Read ID */
+#define FLASH_CMD8_90		0x90909090
+#define FLASH_CMD16_A0		0x00A000A0	/* Program */
+#define FLASH_CMD8_A0		0xA0A0A0A0
+#define FLASH_CMD16_F0		0x00F000F0	/* Reset */
+#define FLASH_CMD8_F0		0xF0F0F0F0
+
+/* Идентификатор версии процессора. */
+#define MC12_ID			0x20777001
+#define MC12REV1_ID		0x30777001
+
+#if defined (__CYGWIN32__) || defined (MINGW32)
+/*
+ * Задержка в миллисекундах: Windows.
+ */
+#include <windows.h>
+
+void mdelay (unsigned msec)
+{
+	Sleep (msec);
+}
+#else
+/*
+ * Задержка в миллисекундах: Unix.
+ */
+void mdelay (unsigned msec)
+{
+	usleep (msec * 1000);
+}
+#endif
+
+/*
+ * Выполнение одной инструкции MIPS32.
+ */
+static void target_exec (target_t *t, unsigned instr)
+{
+	/* Restore PCfetch to right address or
+	 * we can go in exception. */
+	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
+
+	/* Supply instruction to pipeline and do step */
+	oncd_write (instr, OnCD_IRdec, 32);
+	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK, 0);
+}
+
+/*
+ * Запись слова в память.
+ */
+void jtag_write_next (unsigned data, unsigned phys_addr)
+{
+	unsigned wait, oscr;
+
+	if (phys_addr >= 0xA0000000)
+		phys_addr -= 0xA0000000;
+	else if (phys_addr >= 0x80000000)
+		phys_addr -= 0x80000000;
+//fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+	oncd_write (phys_addr, OnCD_OMAR, 32);
+	oncd_write (data, OnCD_OMDR, 32);
+	oncd_write (0, OnCD_MEM, 0);
+
+	for (wait = 1000; wait != 0; wait--) {
+		oscr = oncd_read (OnCD_OSCR, 32);
+		if (oscr & OSCR_RDYm)
+			break;
+		mdelay (1);
+	}
+	if (wait == 0) {
+		fprintf (stderr, "Timeout writing memory, aborted.\n");
+		exit (1);
+	}
+}
+
+void jtag_write_word (unsigned data, unsigned phys_addr)
+{
+	unsigned oscr;
+
+	/* Allow memory access */
+	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	oncd_write (oscr, OnCD_OSCR, 32);
+
+	jtag_write_next (data, phys_addr);
+}
+
+/*
+ * Чтение слова из памяти.
+ */
+void jtag_read_start ()
+{
+	unsigned oscr;
+
+	/* Allow memory access */
+	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM | OSCR_RO;
+	oncd_write (oscr, OnCD_OSCR, 32);
+}
+
+unsigned jtag_read_next (unsigned phys_addr)
+{
+	unsigned wait, oscr, data;
+
+	if (phys_addr >= 0xA0000000)
+		phys_addr -= 0xA0000000;
+	else if (phys_addr >= 0x80000000)
+		phys_addr -= 0x80000000;
+
+	oncd_write (phys_addr, OnCD_OMAR, 32);
+	oncd_write (0, OnCD_MEM, 0);
+	for (wait = 1000; wait != 0; wait--) {
+		oscr = oncd_read (OnCD_OSCR, 32);
+		if (oscr & OSCR_RDYm)
+			break;
+		mdelay (1);
+	}
+	if (wait == 0) {
+		fprintf (stderr, "Timeout reading memory, aborted.\n");
+		exit (1);
+	}
+	data = oncd_read (OnCD_OMDR, 32);
+//fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
+	return data;
+}
+
+unsigned jtag_read_word (unsigned phys_addr)
+{
+	jtag_read_start ();
+	return jtag_read_next (phys_addr);
+}
+
+void jtag_write_byte (unsigned data, unsigned addr)
+{
+	usb_write_nwords (2, t->cscon3 | MC_CSCON3_ADDR (addr), MC_CSCON3,
+		data, addr);
+}
+
+void jtag_write_2bytes (unsigned data1, unsigned addr1,
+	unsigned data2, unsigned addr2)
+{
+	usb_write_nwords (4, t->cscon3 | MC_CSCON3_ADDR (addr1),
+		MC_CSCON3, data1, addr1,
+		t->cscon3 | MC_CSCON3_ADDR (addr2),
+		MC_CSCON3, data2, addr2);
+}
+
+/*
+ * Open the device.
+ */
+target_t *target_open ()
+{
+	target_t *t;
+
+	t = calloc (1, sizeof (target_t));
+	if (! t) {
+		fprintf (stderr, "Out of memory\n");
+		exit (-1);
+	}
+	t->cpu_name = "Unknown";
+	t->flash_base[0] = ~0;
+	t->flash_last[0] = ~0;
+
+	/* Ищем адаптер JTAG: USB, bitbang или LPT. */
+	t->adapter = adapter_open_usb ();
+#if 0
+	if (! t->adapter)
+		t->adapter = adapter_open_bitbang ();
+	if (! t->adapter)
+		t->adapter = adapter_open_lpt ();
+#endif
+	if (! t->adapter) {
+		fprintf (stderr, "No JTAG adapter found.\n");
+		exit (-1);
+	}
+
+	/* Проверяем идентификатор процессора. */
+	t->idcode = t->adapter->get_idcode (t->adapter);
+	if (debug)
+		fprintf (stderr, "idcode %08X\n", t->idcode);
+	switch (t->idcode) {
+	default:
+		/* Device not detected. */
+		if (t->idcode == 0xffffffff || t->idcode == 0)
+			fprintf (stderr, "No response from device -- check power is on!\n");
+		else
+			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
+				t->idcode);
+		t->adapter->close (t->adapter);
+		exit (1);
+	case MC12_ID:
+		t->cpu_name = "MC12";
+		break;
+	case MC12REV1_ID:
+		t->cpu_name = "MC12r1";
+		break;
+	}
+	t->adapter->stop_cpu (t->adapter);
+	t->cscon3 = jtag_read_word (MC_CSCON3) & ~MC_CSCON3_ADDR (3);
+	return t;
+}
+
+/*
+ * Close the device.
+ */
+void target_close (target_t *t)
+{
+	unsigned oscr;
+        int i;
+
+	/* Clear processor state */
+	for (i=1; i<32; i++) {
+		/* add $i, $0, $0 */
+		target_exec (t, 0x20 | (i << 11));
+	}
+	/* Clear pipeline */
+	for (i=0; i<3; i++) {
+		/* add $0, $0, $0 */
+		target_exec (t, 0x20);
+	}
+
+	/* Setup IRdec and PCfetch */
+	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
+	oncd_write (0x20, OnCD_IRdec, 32);
+
+	/* Flush CPU pipeline at exit */
+	oscr = oncd_read (OnCD_OSCR, 32);
+	oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
+	oscr |= OSCR_MPE;
+	oncd_write (oscr, OnCD_OSCR, 32);
+
+	/* Exit */
+	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN, 0);
+
+	t->adapter->close (t->adapter);
+}
+
+/*
+ * Add a flash region.
+ */
+void target_flash_configure (target_t *t, unsigned first, unsigned last)
+{
+	int i;
+
+	for (i=0; i<NFLASH-1; ++i) {
+		if (t->flash_last [i] == ~0) {
+			t->flash_base [i] = first;
+			t->flash_last [i] = last;
+			t->flash_base [i+1] = ~0;
+			t->flash_last [i+1] = ~0;
+			return;
+		}
+	}
+	fprintf (stderr, "target_flash_configure: too many flash regions.\n");
+	exit (1);
+}
+
+/*
+ * Iterate trough all flash regions.
+ */
+unsigned target_flash_next (target_t *t, unsigned prev, unsigned *last)
+{
+	int i;
+
+	if (prev == ~0 && t->flash_base [0] != ~0) {
+		*last = t->flash_last [0];
+		return t->flash_base [0];
+	}
+	for (i=1; i<NFLASH-1 && t->flash_last[i] != ~0; ++i) {
+		if (prev >= t->flash_base [i-1] &&
+		    prev <= t->flash_last [i-1]) {
+			*last = t->flash_last [i];
+			return t->flash_base [i];
+		}
+	}
+	return ~0;
+}
+
+char *target_cpu_name (target_t *t)
+{
+	return t->cpu_name;
+}
+
+unsigned target_idcode (target_t *t)
+{
+	return t->idcode;
+}
+
+unsigned target_flash_width (target_t *t)
+{
+	return t->flash_width;
+}
+
+/*
+ * Вычисление базового адреса микросхемы flash-памяти.
+ */
+static unsigned compute_base (target_t *t, unsigned addr)
+{
+	int i;
+
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+
+	for (i=0; i<NFLASH && t->flash_last[i]; ++i) {
+		if (addr >= t->flash_base [i] &&
+		    addr <= t->flash_last [i])
+			return t->flash_base [i];
+	}
+	fprintf (stderr, "target: no flash region for address 0x%08X\n", addr);
+	exit (1);
+	return 0;
+}
+
+int target_flash_detect (target_t *t, unsigned addr,
+	unsigned *mf, unsigned *dev, char *mfname, char *devname,
+	unsigned *bytes, unsigned *width)
+{
+	int count;
+	unsigned base;
+
+	base = compute_base (t, addr);
+	for (count=0; count<4*5; ++count) {
+		/* Try both 32 and 64 bus width.*/
+		switch (count % 5) {
+	        case 0:
+			/* Two 16-bit flash chips. */
+			t->flash_width = 32;
+			t->flash_addr_odd = 0x5555 << 2;
+			t->flash_addr_even = 0x2AAA << 2;
+			t->flash_cmd_aa = FLASH_CMD16_AA;
+			t->flash_cmd_55 = FLASH_CMD16_55;
+			t->flash_cmd_10 = FLASH_CMD16_10;
+			t->flash_cmd_20 = FLASH_CMD16_20;
+			t->flash_cmd_80 = FLASH_CMD16_80;
+			t->flash_cmd_90 = FLASH_CMD16_90;
+			t->flash_cmd_a0 = FLASH_CMD16_A0;
+			t->flash_cmd_f0 = FLASH_CMD16_F0;
+			t->flash_devid_offset = 4;
+			break;
+		case 1:
+			/* Four 16-bit flash chips. */
+			t->flash_width = 64;
+			t->flash_addr_odd = 0x5555 << 3;
+			t->flash_addr_even = 0x2AAA << 3;
+			t->flash_cmd_aa = FLASH_CMD16_AA;
+			t->flash_cmd_55 = FLASH_CMD16_55;
+			t->flash_cmd_10 = FLASH_CMD16_10;
+			t->flash_cmd_20 = FLASH_CMD16_20;
+			t->flash_cmd_80 = FLASH_CMD16_80;
+			t->flash_cmd_90 = FLASH_CMD16_90;
+			t->flash_cmd_a0 = FLASH_CMD16_A0;
+			t->flash_cmd_f0 = FLASH_CMD16_F0;
+			t->flash_devid_offset = 8;
+			break;
+		case 2:
+			/* Four 8-bit flash chips, SST/Milandr. */
+			t->flash_width = 32;
+			t->flash_addr_odd = 0x555 << 2;
+			t->flash_addr_even = 0x2AA << 2;
+			t->flash_cmd_aa = FLASH_CMD8_AA;
+			t->flash_cmd_55 = FLASH_CMD8_55;
+			t->flash_cmd_10 = FLASH_CMD8_10;
+			t->flash_cmd_20 = FLASH_CMD8_20;
+			t->flash_cmd_80 = FLASH_CMD8_80;
+			t->flash_cmd_90 = FLASH_CMD8_90;
+			t->flash_cmd_a0 = FLASH_CMD8_A0;
+			t->flash_cmd_f0 = FLASH_CMD8_F0;
+			t->flash_devid_offset = 4;
+			break;
+		case 3:
+			/* One 8-bit flash chip. */
+			t->flash_width = 8;
+			t->flash_addr_odd = 0x555;
+			t->flash_addr_even = 0x2AA;
+			t->flash_cmd_aa = FLASH_CMD8_AA;
+			t->flash_cmd_55 = FLASH_CMD8_55;
+			t->flash_cmd_10 = FLASH_CMD8_10;
+			t->flash_cmd_20 = FLASH_CMD8_20;
+			t->flash_cmd_80 = FLASH_CMD8_80;
+			t->flash_cmd_90 = FLASH_CMD8_90;
+			t->flash_cmd_a0 = FLASH_CMD8_A0;
+			t->flash_cmd_f0 = FLASH_CMD8_F0;
+			t->flash_devid_offset = 0;
+			break;
+		case 4:
+			/* Four 8-bit flash chips, Atmel/Angstrem. */
+			t->flash_width = 32;
+			t->flash_addr_odd = 0x5555 << 2;
+			t->flash_addr_even = 0x2AAA << 2;
+			t->flash_cmd_aa = FLASH_CMD8_AA;
+			t->flash_cmd_55 = FLASH_CMD8_55;
+			t->flash_cmd_10 = FLASH_CMD8_10;
+			t->flash_cmd_20 = FLASH_CMD8_20;
+			t->flash_cmd_80 = FLASH_CMD8_80;
+			t->flash_cmd_90 = FLASH_CMD8_90;
+			t->flash_cmd_a0 = FLASH_CMD8_A0;
+			t->flash_cmd_f0 = FLASH_CMD8_F0;
+			t->flash_devid_offset = 4;
+			t->flash_delay = 20;
+			break;
+		default:
+			continue;
+		}
+		/* Read device code. */
+		if (t->flash_width == 8) {
+			/* Byte-wide data bus. */
+			jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
+			jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
+			jtag_write_byte (t->flash_cmd_90, base + t->flash_addr_odd);
+			*mf = jtag_read_word (base);
+			*dev = (unsigned char) (*mf >> 8);
+			*mf = (unsigned char) *mf;
+
+			/* Stop read ID mode. */
+			jtag_write_byte (t->flash_cmd_f0, base);
+		} else if (t->flash_delay) {
+			/* Word-wide data bus. */
+			mdelay (t->flash_delay);
+			jtag_write_nwords (3, t->flash_cmd_aa, base + t->flash_addr_odd,
+				t->flash_cmd_55, base + t->flash_addr_even,
+				t->flash_cmd_90, base + t->flash_addr_odd);
+			mdelay (t->flash_delay);
+			*mf = jtag_read_word (base);
+			*dev = jtag_read_word (base + t->flash_devid_offset);
+			//printf ("base = %08X, dev = %08X, mf = %08X\n", base, *dev, *mf);
+
+			/* Stop read ID mode. */
+			jtag_write_nwords (3, t->flash_cmd_aa, base + t->flash_addr_odd,
+				t->flash_cmd_55, base + t->flash_addr_even,
+				t->flash_cmd_f0, base + t->flash_addr_odd);
+			mdelay (t->flash_delay);
+		} else {
+			/* Word-wide data bus. */
+			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
+			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
+			jtag_write_word (t->flash_cmd_90, base + t->flash_addr_odd);
+			*dev = jtag_read_word (base + t->flash_devid_offset);
+			*mf = jtag_read_word (base);
+
+			/* Stop read ID mode. */
+			jtag_write_word (t->flash_cmd_f0, base);
+		}
+
+		if (debug > 1)
+			fprintf (stderr, "flash id %08X\n", *dev);
+		switch (*dev) {
+		case ID_29LV800_B:
+			strcpy (devname, "29LV800B");
+			t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+			goto success;
+		case ID_29LV800_T:
+			strcpy (devname, "29LV800T");
+			t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+			goto success;
+		case ID_39VF800_A:
+			strcpy (devname, "39VF800A");
+			t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+			goto success;
+		case ID_39VF6401_B:
+			strcpy (devname, "39VF6401B");
+			t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
+			goto success;
+		case ID_1636PP2Y:
+			strcpy (devname, "1636PP2Y");
+			t->flash_bytes = 4*2*1024*1024;
+			goto success;
+		case ID_1638PP1:
+			strcpy (devname, "1638PP1");
+			t->flash_bytes = 4*128*1024;
+			goto success;
+		case (unsigned char) ID_1636PP2Y:
+			if (t->flash_width != 8)
+				break;
+			strcpy (devname, "1636PP2Y");
+			t->flash_bytes = 2*1024*1024;
+			goto success;
+		}
+	}
+	/* printf ("Unknown flash id = %08X\n", *dev); */
+	return 0;
+success:
+	/* Read MFR code. */
+	switch (*mf) {
+	case ID_ALLIANCE:
+		strcpy (mfname, "Alliance");
+		break;
+	case ID_AMD:
+		strcpy (mfname, "AMD");
+		break;
+	case ID_SST:
+		strcpy (mfname, "SST");
+		break;
+	case ID_MILANDR:
+		strcpy (mfname, "Milandr");
+		break;
+	case ID_ANGSTREM:
+		strcpy (mfname, "Angstrem");
+		break;
+	case (unsigned char) ID_MILANDR:
+		if (t->flash_width != 8)
+			goto unknown_mfr;
+		strcpy (mfname, "Milandr");
+		break;
+	default:
+unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
+		break;
+	}
+
+	*bytes = t->flash_bytes;
+	*width = t->flash_width;
+	return 1;
+}
+
+int target_erase (target_t *t, unsigned addr)
+{
+	unsigned word, base;
+
+	/* Chip erase. */
+	base = compute_base (t, addr);
+	printf ("Erase: %08X", base);
+	if (t->flash_width == 8) {
+		/* 8-разрядная шина. */
+		jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
+		jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_byte (t->flash_cmd_80, base + t->flash_addr_odd);
+		jtag_write_byte (t->flash_cmd_aa, base + t->flash_addr_odd);
+		jtag_write_byte (t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_byte (t->flash_cmd_10, base + t->flash_addr_odd);
+	} else if (t->flash_delay) {
+		jtag_write_nwords (6, t->flash_cmd_aa, base + t->flash_addr_odd,
+			t->flash_cmd_55, base + t->flash_addr_even,
+			t->flash_cmd_80, base + t->flash_addr_odd,
+			t->flash_cmd_aa, base + t->flash_addr_odd,
+			t->flash_cmd_55, base + t->flash_addr_even,
+			t->flash_cmd_10, base + t->flash_addr_odd);
+	} else {
+		jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
+		jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_word (t->flash_cmd_80, base + t->flash_addr_odd);
+		jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd);
+		jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_word (t->flash_cmd_10, base + t->flash_addr_odd);
+		if (t->flash_width == 64) {
+			/* Старшая половина 64-разрядной шины. */
+			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd + 4);
+			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even + 4);
+			jtag_write_word (t->flash_cmd_80, base + t->flash_addr_odd + 4);
+			jtag_write_word (t->flash_cmd_aa, base + t->flash_addr_odd + 4);
+			jtag_write_word (t->flash_cmd_55, base + t->flash_addr_even + 4);
+			jtag_write_word (t->flash_cmd_10, base + t->flash_addr_odd + 4);
+		}
+	}
+	for (;;) {
+		fflush (stdout);
+		mdelay (250);
+		word = jtag_read_word (base);
+		if (word == 0xffffffff)
+			break;
+		printf (".");
+	}
+	mdelay (250);
+	printf (" done\n");
+	return 1;
+}
+
+/*
+ * Повторная запись реализована только для 8-битной flash-памяти.
+ */
+int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
+{
+	unsigned bad, base;
+	unsigned char byte;
+
+	base = compute_base (t, addr);
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+
+	/* Повтор записи возможен, только если не прописались нули. */
+	bad = jtag_read_word (addr);
+	if ((bad & word) != word) {
+		fprintf (stderr, "target: cannot rewrite word at %x\n",
+			addr);
+		exit (1);
+	}
+
+	switch (t->flash_width) {
+	case 8:
+		/* Вычисляем нужный байт. */
+		for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
+			addr++;
+			word >>= 8;
+		}
+		byte = word;
+//fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
+
+		jtag_write_2bytes (t->flash_cmd_aa, base + t->flash_addr_odd,
+				   t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_2bytes (t->flash_cmd_a0, base + t->flash_addr_odd,
+				   byte, addr);
+		break;
+	case 64:
+		base += addr & 4;
+		/* fall through...*/
+	case 32:
+		if (t->flash_delay)
+			return 0;
+fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
+		jtag_write_nwords (4, t->flash_cmd_aa, base + t->flash_addr_odd,
+				   t->flash_cmd_55, base + t->flash_addr_even,
+				   t->flash_cmd_a0, base + t->flash_addr_odd,
+				   word, addr);
+		break;
+	}
+	return 1;
+}
+
+unsigned target_read_word (target_t *t, unsigned addr)
+{
+	return jtag_read_word (addr);
+}
+
+void target_read_block (target_t *t, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+	while (nwords > 0) {
+		unsigned n = nwords;
+		if (n > 64)
+			n = 64;
+		jtag_read_block (n, addr, data);
+		data += n;
+		addr += n*4;
+		nwords -= n;
+	}
+}
+
+void target_write_block (target_t *t, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+	while (nwords > 0) {
+		unsigned n = nwords;
+		if (n > 64)
+			n = 64;
+		jtag_write_block (n, addr, data);
+		data += n;
+		addr += n*4;
+		nwords -= n;
+	}
+}
+
+void target_write_word (target_t *t, unsigned addr, unsigned word)
+{
+	if (debug)
+		fprintf (stderr, "write word %08x to %08x\n", word, addr);
+	jtag_write_word (word, addr);
+}
+
+void target_write_next (target_t *t, unsigned addr, unsigned word)
+{
+	jtag_write_next (word, addr);
+}
+
+void target_program_block (target_t *t, unsigned addr,
+	unsigned nwords, unsigned *data)
+{
+	unsigned base;
+
+	base = compute_base (t, addr);
+	if (addr >= 0xA0000000)
+		addr -= 0xA0000000;
+	else if (addr >= 0x80000000)
+		addr -= 0x80000000;
+//printf ("target_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, t->flash_width, base);
+	switch (t->flash_width) {
+	case 8:
+		/* 8-разрядная шина. */
+		/* Unlock bypass. */
+		jtag_write_2bytes (t->flash_cmd_aa, base + t->flash_addr_odd,
+				   t->flash_cmd_55, base + t->flash_addr_even);
+		jtag_write_byte (t->flash_cmd_20, base + t->flash_addr_odd);
+		while (nwords-- > 0) {
+			unsigned word = *data++;
+			jtag_write_2bytes (t->flash_cmd_a0, base, word, addr++);
+			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 8, addr++);
+			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 16, addr++);
+			jtag_write_2bytes (t->flash_cmd_a0, base, word >> 24, addr++);
+		}
+		/* Reset unlock bypass. */
+		jtag_write_2bytes (t->flash_cmd_90, base, 0, base);
+		break;
+	case 32:
+		if (t->flash_delay) {
+			while (nwords > 0) {
+				jtag_program_block32_unprotect (128, base, addr, data,
+					t->flash_addr_odd, t->flash_addr_even,
+					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+				jtag_program_block32_protect (128, base, addr, data,
+					t->flash_addr_odd, t->flash_addr_even,
+					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+				if (nwords <= 128)
+					break;
+				data += 128;
+				addr += 128*4;
+				nwords -= 128;
+			}
+		} else {
+			while (nwords > 0) {
+				unsigned n = nwords;
+				if (n > 16)
+					n = 16;
+				jtag_program_block32 (n, base, addr, data,
+					t->flash_addr_odd, t->flash_addr_even,
+					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+				data += n;
+				addr += n*4;
+				nwords -= n;
+			}
+		}
+		break;
+	case 64:
+		/* 64-разрядная шина. */
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 16)
+				n = 16;
+			jtag_program_block64 (n, base, addr, data,
+				t->flash_addr_odd, t->flash_addr_even,
+				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		break;
+	}
+}
