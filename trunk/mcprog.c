@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <sys/time.h>
-#include "multicore.h"
+#include "target.h"
 #include "conf.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
@@ -38,7 +38,7 @@ unsigned memory_base;
 unsigned progress_count, progress_step;
 int verify_only;
 int debug;
-multicore_t *multicore;
+target_t *target;
 char *progname;
 char *confname;
 char *board;
@@ -179,17 +179,17 @@ void print_symbols (char symbol, int cnt)
 		putchar (symbol);
 }
 
-void program_block (multicore_t *mc, unsigned addr, int len)
+void program_block (target_t *mc, unsigned addr, int len)
 {
 	/* Write flash memory. */
-	multicore_program_block (mc, memory_base + addr,
+	target_program_block (mc, memory_base + addr,
 		(len + 3) / 4, (unsigned*) (memory_data + addr));
 }
 
-void write_block (multicore_t *mc, unsigned addr, int len)
+void write_block (target_t *mc, unsigned addr, int len)
 {
 	/* Write static memory. */
-	multicore_write_block (mc, memory_base + addr,
+	target_write_block (mc, memory_base + addr,
 		(len + 3) / 4, (unsigned*) (memory_data + addr));
 }
 
@@ -207,12 +207,12 @@ void progress ()
 	}
 }
 
-void verify_block (multicore_t *mc, unsigned addr, int len)
+void verify_block (target_t *mc, unsigned addr, int len)
 {
 	int i;
 	unsigned word, expected, block [BLOCKSZ/4];
 
-	multicore_read_block (mc, memory_base + addr, (len+3)/4, block);
+	target_read_block (mc, memory_base + addr, (len+3)/4, block);
 	for (i=0; i<len; i+=4) {
 		expected = *(unsigned*) (memory_data + addr + i);
 //		if (expected == 0xffffffff)
@@ -226,7 +226,7 @@ void verify_block (multicore_t *mc, unsigned addr, int len)
 			 * Пробуем повторить операцию. */
 /* printf ("\nerror at address %08X: file=%08X, mem=%08X ",
 addr + i + memory_base, expected, word); fflush (stdout); */
-			if (verify_only || ! multicore_flash_rewrite (mc,
+			if (verify_only || ! target_flash_rewrite (mc,
 			    memory_base + addr + i, expected)) {
 				printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
 					addr + i + memory_base, expected, word);
@@ -235,18 +235,18 @@ addr + i + memory_base, expected, word); fflush (stdout); */
 			}
 			printf ("%%\b");
 			fflush (stdout);
-			word = multicore_read_word (mc, memory_base + addr + i);
+			word = target_read_word (mc, memory_base + addr + i);
 		}
 	}
 }
 
-void probe_flash (multicore_t *mc, unsigned base)
+void probe_flash (target_t *mc, unsigned base)
 {
 	unsigned mfcode, devcode, bytes, width;
 	char mfname[40], devname[40];
 
 	printf ("Flash at %08X: ", base);
-	if (! multicore_flash_detect (mc, base, &mfcode, &devcode,
+	if (! target_flash_detect (mc, base, &mfcode, &devcode,
 	    mfname, devname, &bytes, &width)) {
 		printf ("Incorrect id %08X\n", devcode);
 		return;
@@ -264,10 +264,10 @@ void probe_flash (multicore_t *mc, unsigned base)
 
 void quit (void)
 {
-	if (multicore != 0) {
-		multicore_close (multicore);
-		free (multicore);
-		multicore = 0;
+	if (target != 0) {
+		target_close (target);
+		free (target);
+		target = 0;
 	}
 }
 
@@ -299,23 +299,23 @@ void configure_parameter (char *section, char *param, char *value)
 	/* Needed section found. */
 	if (strcasecmp (param, "csr") == 0) {
 		word = strtol (value, 0, 0);
-		multicore_write_word (multicore, 0x182F4008, word);
+		target_write_word (target, 0x182F4008, word);
 
 	} else if (strcasecmp (param, "cscon0") == 0) {
 		word = strtol (value, 0, 0);
-		multicore_write_word (multicore, 0x182F1000, word);
+		target_write_word (target, 0x182F1000, word);
 
 	} else if (strcasecmp (param, "cscon1") == 0) {
 		word = strtol (value, 0, 0);
-		multicore_write_word (multicore, 0x182F1004, word);
+		target_write_word (target, 0x182F1004, word);
 
 	} else if (strcasecmp (param, "cscon2") == 0) {
 		word = strtol (value, 0, 0);
-		multicore_write_word (multicore, 0x182F1008, word);
+		target_write_word (target, 0x182F1008, word);
 
 	} else if (strcasecmp (param, "cscon3") == 0) {
 		word = strtol (value, 0, 0);
-		multicore_write_word (multicore, 0x182F100C, word);
+		target_write_word (target, 0x182F100C, word);
 
 	} else if (strncasecmp (param, "flash ", 6) == 0) {
 		if (sscanf (value, "%i-%i", &first, &last) != 2) {
@@ -324,7 +324,7 @@ void configure_parameter (char *section, char *param, char *value)
 			exit (-1);
 		}
 		printf ("  %s = %08X-%08X\n", param, first, last);
-		multicore_flash_configure (multicore, first, last);
+		target_flash_configure (target, first, last);
 	} else {
 		fprintf (stderr, "%s: unknown parameter `%s'\n",
 			confname, param);
@@ -364,25 +364,25 @@ void do_probe ()
 	unsigned addr, last;
 
 	/* Open and detect the device. */
-	multicore_init ();
+	target_init ();
 	atexit (quit);
-	multicore = multicore_open ();
-	if (! multicore) {
+	target = target_open ();
+	if (! target) {
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
-	printf ("Processor: %s (id %08X)\n", multicore_cpu_name (multicore),
-		multicore_idcode (multicore));
+	printf ("Processor: %s (id %08X)\n", target_cpu_name (target),
+		target_idcode (target));
 
 	configure ();
 
 	/* Probe all configured flash regions. */
 	addr = ~0;
 	for (;;) {
-		addr = multicore_flash_next (multicore, addr, &last);
+		addr = target_flash_next (target, addr, &last);
 		if (! ~addr)
 			break;
-		probe_flash (multicore, addr);
+		probe_flash (target, addr);
 	}
 }
 
@@ -394,21 +394,21 @@ void do_program ()
 	int len;
 	void *t0;
 
-	multicore_init ();
+	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
-	multicore = multicore_open ();
-	if (! multicore) {
+	target = target_open ();
+	if (! target) {
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
-	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
+	/*printf ("Processor: %s\n", target_cpu_name (target));*/
 
 	configure ();
-	if (! multicore_flash_detect (multicore, memory_base,
+	if (! target_flash_detect (target, memory_base,
 	    &mfcode, &devcode, mfname, devname, &bytes, &width)) {
 		printf ("No flash memory detected.\n");
 		return;
@@ -421,7 +421,7 @@ void do_program ()
 
 	if (! verify_only) {
 		/* Erase flash. */
-		multicore_erase (multicore, memory_base);
+		target_erase (target, memory_base);
 	}
 	for (progress_step=1; ; progress_step<<=1) {
 		len = 1 + memory_len / progress_step / BLOCKSZ;
@@ -440,9 +440,9 @@ void do_program ()
 		if (memory_len - addr < len)
 			len = memory_len - addr;
 		if (! verify_only)
-			program_block (multicore, addr, len);
+			program_block (target, addr, len);
 		progress ();
-		verify_block (multicore, addr, len);
+		verify_block (target, addr, len);
 	}
 	printf ("# done\n");
 	printf ("Rate: %ld bytes per second\n",
@@ -455,18 +455,18 @@ void do_write ()
 	int len;
 	void *t0;
 
-	multicore_init ();
+	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
-	multicore = multicore_open ();
-	if (! multicore) {
+	target = target_open ();
+	if (! target) {
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
-	/*printf ("Processor: %s\n", multicore_cpu_name (multicore));*/
+	/*printf ("Processor: %s\n", target_cpu_name (target));*/
 
 	configure ();
 	for (progress_step=1; ; progress_step<<=1) {
@@ -486,9 +486,9 @@ void do_write ()
 		if (memory_len - addr < len)
 			len = memory_len - addr;
 		if (! verify_only)
-			write_block (multicore, addr, len);
+			write_block (target, addr, len);
 		progress ();
-		verify_block (multicore, addr, len);
+		verify_block (target, addr, len);
 	}
 	printf ("# done\n");
 	printf ("Rate: %ld bytes per second\n",
@@ -506,14 +506,14 @@ void do_read (char *filename)
 		perror (filename);
 		exit (1);
 	}
-	multicore_init ();
+	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
 	/* Open and detect the device. */
 	atexit (quit);
-	multicore = multicore_open ();
-	if (! multicore) {
+	target = target_open ();
+	if (! target) {
 		fprintf (stderr, "Error detecting device -- check cable!\n");
 		exit (1);
 	}
@@ -536,7 +536,7 @@ void do_read (char *filename)
 			len = memory_len - addr;
 		progress ();
 
-		multicore_read_block (multicore, memory_base + addr,
+		target_read_block (target, memory_base + addr,
 			(len + 3) / 4, data);
 		if (fwrite (data, 1, len, fd) != len) {
 			fprintf (stderr, "%s: write error!\n", filename);
