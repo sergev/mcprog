@@ -1,5 +1,5 @@
 /*
- * Интерфейс через адаптер USB-JTAG к процессору Элвис Мультикор.
+ * Интерфейс к адаптеру USB-JTAG фирмы Элвис.
  * Автор: С.Вакуленко.
  *
  * Этот файл распространяется в надежде, что он окажется полезным, но
@@ -20,6 +20,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
+
+#include "adapter.h"
+#include "oncd.h"
+
 #if defined (__CYGWIN32__) || defined (MINGW32)
 #   include "libusb-win32/usb.h"
 #   include "usb-win32.c"
@@ -27,130 +31,21 @@
 #   include <libusb-1.0/libusb.h>
 #endif
 
-#include "target.h"
+extern int debug;
 
-#define NFLASH		16	/* Max flash regions. */
+typedef struct {
+	/* Общая часть. */
+	adapter_t adapter;
 
-struct _target_t {
-	char		*cpu_name;
-	unsigned 	idcode;
-	unsigned	flash_width;
-	unsigned	flash_bytes;
-	unsigned	flash_addr_odd;
-	unsigned	flash_addr_even;
-	unsigned	flash_cmd_aa;
-	unsigned	flash_cmd_55;
-	unsigned	flash_cmd_10;
-	unsigned	flash_cmd_20;
-	unsigned	flash_cmd_80;
-	unsigned	flash_cmd_90;
-	unsigned	flash_cmd_a0;
-	unsigned	flash_cmd_f0;
-	unsigned	flash_devid_offset;
-	unsigned	flash_base [NFLASH];
-	unsigned	flash_last [NFLASH];
-	unsigned	flash_delay;
-};
+	/* Доступ к устройству через libusb. */
+	struct libusb_device_handle *usbdev;
 
-static struct libusb_device_handle *usbdev;
-
-/*
- * Регистр конфигурации 3
- */
-static unsigned cscon3;
+	/* Версия аппаратной прошивки адаптера. */
+	unsigned hw_version;
+} usb_adapter_t;
 
 #define MC_CSCON3		0x182F100C
 #define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
-
-/* Идентификатор производителя flash. */
-#define ID_ALLIANCE		0x00520052
-#define ID_AMD			0x00010001
-#define ID_SST			0x00BF00BF
-#define ID_MILANDR		0x01010101
-#define ID_ANGSTREM		0xBFBFBFBF
-
-/* Идентификатор микросхемы flash. */
-#define ID_29LV800_B		0x225b225b
-#define ID_29LV800_T		0x22da22da
-#define ID_39VF800_A		0x27812781
-#define ID_39VF6401_B		0x236d236d
-#define ID_1636PP2Y		0xc8c8c8c8
-#define ID_1638PP1		0x07070707
-
-/* Команды flash. */
-#define FLASH_CMD16_AA		0x00AA00AA
-#define FLASH_CMD8_AA		0xAAAAAAAA
-#define FLASH_CMD16_55		0x00550055
-#define FLASH_CMD8_55		0x55555555
-#define FLASH_CMD16_10		0x00100010	/* Chip erase 2/2 */
-#define FLASH_CMD8_10		0x10101010
-#define FLASH_CMD16_20		0x00200020	/* Unlock bypass */
-#define FLASH_CMD8_20		0x20202020
-#define FLASH_CMD16_80		0x00800080	/* Chip erase 1/2 */
-#define FLASH_CMD8_80		0x80808080
-#define FLASH_CMD16_90		0x00900090	/* Read ID */
-#define FLASH_CMD8_90		0x90909090
-#define FLASH_CMD16_A0		0x00A000A0	/* Program */
-#define FLASH_CMD8_A0		0xA0A0A0A0
-#define FLASH_CMD16_F0		0x00F000F0	/* Reset */
-#define FLASH_CMD8_F0		0xF0F0F0F0
-
-/* Идентификатор версии процессора. */
-#define MC12_ID			0x20777001
-#define MC12REV1_ID		0x30777001
-
-/* Регистр IRЖ команды JTAG */
-#define IR_EXTEST		0x00
-#define IR_SAMPLE_PRELOAD	0x11
-#define IR_IDCODE		0x33
-#define IR_DEBUG_REQUEST	0x44
-#define IR_DEBUG_ENABLE		0x55
-#define IR_BYPASS		0xff
-
-/* Биты регистра IRd */
-#define	IRd_RUN		0x20	/* 0 - step mode, 1 - run continuosly */
-#define	IRd_READ	0x40	/* 0 - write, 1 - read registers */
-#define	IRd_FLUSH_PIPE	0x40	/* for EnGO: instruction pipe changed */
-#define	IRd_STEP_1CLK	0x80	/* for step mode: run for 1 clock only */
-
-/* Младшие биты IRd: номер регистра OnCD */
-#define	OnCD_OSCR	0x00	/* Control & State Register */
-#define	OnCD_OMBC	0x01	/* BreakPoint Match Counter */
-#define	OnCD_OMLR0	0x02	/* Address Boundary Register 0 */
-#define	OnCD_OMLR1	0x03	/* Address Boundary Register 1 */
-#define	OnCD_OBCR	0x04	/* BreakPoint Control Register */
-#define	OnCD_IRdec	0x05	/* Last CPU Instruction, can be supplied. */
-#define	OnCD_OTC	0x06	/* Trace Counter */
-#define	OnCD_PCdec	0x07	/* Decoding Instruction(IRdec) Address */
-#define	OnCD_PCexec	0x08	/* Executing Instruction Address */
-#define	OnCD_PCmem	0x09	/* Memory Access Instruction Address */
-#define	OnCD_PCfetch	0x0A	/* PC (Fetching Instruction Address) */
-#define	OnCD_OMAR	0x0B	/* Memory Address Register */
-#define	OnCD_OMDR	0x0C	/* Memory Data Register */
-#define	OnCD_MEM	0x0D	/* Memory Access Register (EnMEM) */
-#define	OnCD_PCwb	0x0E	/* Address of instruction at write back stage */
-#define	OnCD_MEMACK	0x0E	/* Memory Operation Acknowlege (EnXX) */
-#define	OnCD_EXIT	0x0F	/* Exit From Debug Mode (EnGO) */
-
-/* OSCR Register */
-#define	OSCR_SlctMEM	0x0001	/* Allow Memory Access */
-#define OSCR_RO		0x0002	/* 0: Write, 1: Read */
-#define OSCR_TME	0x0004	/* Trace Mode Enable */
-#define OSCR_IME	0x0008	/* Debug Interrupt Enable */
-#define OSCR_MPE	0x0010	/* Flash CPU Pipeline At Debug Exit */
-#define OSCR_RDYm	0x0020	/* RDY signal state */
-#define OSCR_MBO	0x0040	/* BreakPoint triggered */
-#define OSCR_TO		0x0080	/* Trace Counter triggered */
-#define OSCR_SWO	0x0100	/* SoftWare enter into Debug mode */
-#define OSCR_SO		0x0200	/* CPU Mode, 0: running, 1: Debug */
-#define OSCR_DBM	0x0400	/* Debug Mode On, mc12 and above */
-#define OSCR_NDS	0x0800	/* Do not stop in delay slot, mc12 and above */
-#define OSCR_VBO	0x1000	/* Exception catched, mc12 and above */
-#define OSCR_NFEXP	0x2000	/* Do not raise exception at pc fetch */
-#define OSCR_WP0	0x4000	/* WP0 triggered, only for mc12 and above */
-#define OSCR_WP1	0x8000	/* WP1 triggered, only for mc12 and above */
-
-extern int debug;
 
 /* Endpoints for USB-JTAG adapter. */
 #define BULK_WRITE_ENDPOINT	2
@@ -204,30 +99,27 @@ extern int debug;
 #endif
 #define H_IDCODE	0x03		/* запрос idcode */
 
-#if defined (__CYGWIN32__) || defined (MINGW32)
+#if 0
 /*
- * Windows.
+ * Отладочная печать байтового массива.
  */
-#include <windows.h>
+static void print_pkt (unsigned char *pkt, unsigned len)
+{
+	unsigned i;
 
-void jtag_usleep (unsigned usec)
-{
-	Sleep (usec / 1000);
-}
-#else
-/*
- * Unix.
- */
-void jtag_usleep (unsigned usec)
-{
-	usleep (usec);
+	printf ("%02x", pkt[0]);
+	for (i=1; i<len; ++i) {
+		printf ("-%02x", pkt[i]);
+	}
+	printf ("\n");
 }
 #endif
 
 /*
  * Записать через USB массив данных.
  */
-static void bulk_write (const unsigned char *wb, unsigned wlen)
+static void bulk_write (struct libusb_device_handle *usbdev,
+	const unsigned char *wb, unsigned wlen)
 {
 	int transferred;
 
@@ -251,7 +143,8 @@ static void bulk_write (const unsigned char *wb, unsigned wlen)
 /*
  * Записать команду в Ctrl Pipe.
  */
-static void bulk_cmd (unsigned char cmd)
+static void bulk_cmd (struct libusb_device_handle *usbdev,
+	unsigned char cmd)
 {
 	int transferred;
 
@@ -270,7 +163,8 @@ static void bulk_cmd (unsigned char cmd)
 /*
  * Прочитать из USB массив данных.
  */
-static unsigned bulk_read (unsigned char *rb, unsigned rlen)
+static unsigned bulk_read (struct libusb_device_handle *usbdev,
+	unsigned char *rb, unsigned rlen)
 {
 	int transferred;
 
@@ -297,8 +191,9 @@ static unsigned bulk_read (unsigned char *rb, unsigned rlen)
 /*
  * Записать и прочитать из USB массив данных.
  */
-static unsigned bulk_write_read (const unsigned char *wb,
-	unsigned wlen, unsigned char *rb, unsigned rlen)
+static unsigned bulk_write_read (struct libusb_device_handle *usbdev,
+	const unsigned char *wb, unsigned wlen,
+	unsigned char *rb, unsigned rlen)
 {
 	int transferred;
 
@@ -339,56 +234,14 @@ static unsigned bulk_write_read (const unsigned char *wb,
 }
 
 /*
- * Приведение адаптера USB в исходное состояние.
- */
-void jtag_start (void)
-{
-	static const unsigned char pkt_reset[8] = {
-		/* Посылаем команду чтения MEM, но с активным TRST. */
-		HDR (H_DEBUG | H_TRST),
-		OnCD_MEM | IRd_READ,
-	};
-	static const unsigned char pkt_getver[8] = {
-		HIR (H_DEBUG | H_TRST | H_SYSRST),
-		IR_BYPASS
-	};
-	unsigned char rb[32];
-	int cfg;
-
-	usbdev = libusb_open_device_with_vid_pid (NULL, 0x0547, 0x1002);
-	if (! usbdev) {
-		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");
-		exit (-1);
-	}
-	if (libusb_get_configuration (usbdev, &cfg) != 0 || cfg != 1)
-		libusb_set_configuration (usbdev, 1);
-	libusb_claim_interface (usbdev, 0);
-
-	bulk_cmd (ADAPTER_PLL_12MHZ);
-//	bulk_cmd (ADAPTER_PLL_48MHZ);
-	jtag_usleep (1000);
-	bulk_cmd (ADAPTER_ACTIVE_RESET);
-	jtag_usleep (1000);
-	bulk_cmd (ADAPTER_DEACTIVE_RESET);
-	jtag_usleep (1000);
-
-	/* Сброс OnCD. */
-	bulk_write_read (pkt_reset, 2, rb, 32);
-
-	/* Получить версию прошивки. */
-	if (bulk_write_read (pkt_getver, 2, rb, 8) != 2) {
-		fprintf (stderr, "Failed to get adapter version.\n");
-		exit (-1);
-	}
-	fprintf (stderr, "USB adapter version: %02x\n", *(unsigned short*) rb >> 8);
-}
-
-/*
  * Перевод кристалла в режим отладки путём манипуляций
  * регистрами данных JTAG.
  */
-void jtag_reset ()
+static void usb_stop_cpu (adapter_t *adapter)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
+	unsigned char rb[8];
+	unsigned retry;
 	static const unsigned char pkt_debug_request_sysrst[8] = {
 		HIR (H_DEBUG | H_SYSRST),
 		IR_DEBUG_REQUEST,
@@ -397,12 +250,10 @@ void jtag_reset ()
 		HIR (H_DEBUG),
 		IR_DEBUG_ENABLE,
 	};
-	unsigned char rb[8];
-	unsigned retry;
 
 	/* Запрос Debug request, сброс процессора. */
 	for (retry=0; ; retry++) {
-		if (bulk_write_read (pkt_debug_request_sysrst, 2, rb, 8) != 2) {
+		if (bulk_write_read (a->usbdev, pkt_debug_request_sysrst, 2, rb, 8) != 2) {
 			fprintf (stderr, "Failed debug request.\n");
 			exit (-1);
 		}
@@ -416,7 +267,7 @@ void jtag_reset ()
 
 	/* Разрешить отладочный режим. */
 	for (retry=0; ; retry++) {
-		if (bulk_write_read (pkt_debug_enable, 2, rb, 8) != 2) {
+		if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 8) != 2) {
 			fprintf (stderr, "Failed debug enable.\n");
 			exit (-1);
 		}
@@ -432,16 +283,17 @@ void jtag_reset ()
 /*
  * Чтение регистра IDCODE.
  */
-unsigned jtag_get_idcode (void)
+static unsigned usb_get_idcode (adapter_t *adapter)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
+	unsigned char rb [8];
+	unsigned idcode;
 	static const unsigned char pkt_idcode[8] = {
 		HDR (H_32 | H_SYSRST | H_IDCODE),
 		0x03,
 	};
-	unsigned char rb [8];
-	unsigned idcode;
 
-	if (bulk_write_read (pkt_idcode, 6, rb, 8) != 4) {
+	if (bulk_write_read (a->usbdev, pkt_idcode, 6, rb, 8) != 4) {
 		fprintf (stderr, "Failed to get IDCODE.\n");
 		exit (-1);
 	}
@@ -452,7 +304,7 @@ unsigned jtag_get_idcode (void)
 /*
  * Заполнение пакета для блочного или неблочного обращения.
  */
-unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
+static unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
 	unsigned reg, unsigned data)
 {
 	*ptr++ = cmd;
@@ -464,13 +316,14 @@ unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
 /*
  * Чтение 32-битного регистра OnCD.
  */
-static unsigned oncd_read (int reg)
+static unsigned usb_oncd_read (adapter_t *adapter, int reg, int nbits)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt[6];
 	unsigned val = 0;
 
 	fill_pkt (pkt, HDR (H_32), reg | IRd_READ, 0);
-	if (bulk_write_read (pkt, 6, (unsigned char*) &val, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, 6, (unsigned char*) &val, 4) != 4) {
 		fprintf (stderr, "Failed to read register.\n");
 		exit (-1);
 	}
@@ -481,72 +334,21 @@ static unsigned oncd_read (int reg)
 /*
  * Запись регистра OnCD.
  */
-static void oncd_write (unsigned val, int reg)
+static void usb_oncd_write (adapter_t *adapter,
+	unsigned val, int reg, int nbits)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt[6];
 
 //fprintf (stderr, "OnCD write %d := %08x\n", reg, val);
 	fill_pkt (pkt, HDR (H_32), reg, val);
-	bulk_write (pkt, 6);
+	bulk_write (a->usbdev, pkt, 6);
 }
 
-/*
- * Выполнение одной инструкции MIPS32.
- */
-static void exec (unsigned instr)
+static void usb_write_block (adapter_t *adapter,
+	unsigned nwords, unsigned addr, unsigned *data)
 {
-	/* Restore PCfetch to right address or
-	 * we can go in exception. */
-	oncd_write (0xBFC00000, OnCD_PCfetch);
-
-	/* Supply instruction to pipeline and do step */
-	oncd_write (instr, OnCD_IRdec);
-	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK);
-}
-
-/*
- * Запись слова в память.
- */
-void jtag_write_next (unsigned data, unsigned phys_addr)
-{
-	unsigned wait, oscr;
-
-	if (phys_addr >= 0xA0000000)
-		phys_addr -= 0xA0000000;
-	else if (phys_addr >= 0x80000000)
-		phys_addr -= 0x80000000;
-//fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
-	oncd_write (phys_addr, OnCD_OMAR);
-	oncd_write (data, OnCD_OMDR);
-	oncd_write (0, OnCD_MEM);
-
-	for (wait = 100000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR);
-		if (oscr & OSCR_RDYm)
-			break;
-		jtag_usleep (10);
-	}
-	if (wait == 0) {
-		fprintf (stderr, "Timeout writing memory, aborted.\n");
-		exit (1);
-	}
-}
-
-void jtag_write_word (unsigned data, unsigned phys_addr)
-{
-	unsigned oscr;
-
-	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR);
-	oscr |= OSCR_SlctMEM;
-	oscr &= ~OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR);
-
-	jtag_write_next (data, phys_addr);
-}
-
-void jtag_write_block (unsigned nwords, unsigned addr, unsigned *data)
-{
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
 
@@ -556,7 +358,7 @@ void jtag_write_block (unsigned nwords, unsigned addr, unsigned *data)
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to write 4 words.\n");
 		exit (-1);
 	}
@@ -566,19 +368,9 @@ void jtag_write_block (unsigned nwords, unsigned addr, unsigned *data)
 	}
 }
 
-void print_pkt (unsigned char *pkt, unsigned len)
+void usb_write_nwords (adapter_t *adapter, unsigned nwords, ...)
 {
-	unsigned i;
-
-	printf ("%02x", pkt[0]);
-	for (i=1; i<len; ++i) {
-		printf ("-%02x", pkt[i]);
-	}
-	printf ("\n");
-}
-
-void jtag_write_nwords (unsigned nwords, ...)
-{
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*2*nwords + 6], *ptr = pkt;
 	unsigned i, oscr, data, addr;
         va_list args;
@@ -593,8 +385,7 @@ void jtag_write_nwords (unsigned nwords, ...)
         va_end (args);
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-//	print_pkt (pkt, ptr - pkt);
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to write %d words.\n", nwords);
 		exit (-1);
 	}
@@ -604,68 +395,10 @@ void jtag_write_nwords (unsigned nwords, ...)
 	}
 }
 
-void jtag_write_byte (unsigned data, unsigned addr)
+void usb_read_block (adapter_t *adapter,
+	unsigned nwords, unsigned addr, unsigned *data)
 {
-	jtag_write_nwords (2, cscon3 | MC_CSCON3_ADDR (addr), MC_CSCON3,
-		data, addr);
-}
-
-void jtag_write_2bytes (unsigned data1, unsigned addr1,
-	unsigned data2, unsigned addr2)
-{
-	jtag_write_nwords (4, cscon3 | MC_CSCON3_ADDR (addr1),
-		MC_CSCON3, data1, addr1,
-		cscon3 | MC_CSCON3_ADDR (addr2),
-		MC_CSCON3, data2, addr2);
-}
-
-/*
- * Чтение слова из памяти.
- */
-void jtag_read_start ()
-{
-	unsigned oscr;
-
-	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR);
-	oscr |= OSCR_SlctMEM | OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR);
-}
-
-unsigned jtag_read_next (unsigned phys_addr)
-{
-	unsigned wait, oscr, data;
-
-	if (phys_addr >= 0xA0000000)
-		phys_addr -= 0xA0000000;
-	else if (phys_addr >= 0x80000000)
-		phys_addr -= 0x80000000;
-
-	oncd_write (phys_addr, OnCD_OMAR);
-	oncd_write (0, OnCD_MEM);
-	for (wait = 100000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR);
-		if (oscr & OSCR_RDYm)
-			break;
-		jtag_usleep (10);
-	}
-	if (wait == 0) {
-		fprintf (stderr, "Timeout reading memory, aborted.\n");
-		exit (1);
-	}
-	data = oncd_read (OnCD_OMDR);
-//fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
-	return data;
-}
-
-unsigned jtag_read_word (unsigned phys_addr)
-{
-	jtag_read_start ();
-	return jtag_read_next (phys_addr);
-}
-
-void jtag_read_block (unsigned nwords, unsigned addr, unsigned *data)
-{
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
 #if 1
@@ -683,12 +416,12 @@ void jtag_read_block (unsigned nwords, unsigned addr, unsigned *data)
 #endif
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt,
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt,
 	    (unsigned char*) data, 4*nwords) != 4*nwords) {
 		fprintf (stderr, "Empty data reading memory, aborted.\n");
 		exit (1);
 	}
-	if (bulk_read ((unsigned char*) &oscr, 4) != 4) {
+	if (bulk_read (a->usbdev, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to read N words.\n");
 		exit (-1);
 	}
@@ -698,13 +431,15 @@ void jtag_read_block (unsigned nwords, unsigned addr, unsigned *data)
 	}
 }
 
-void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+void usb_program_block32 (adapter_t *adapter,
+	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*(8+1)*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
-//printf ("jtag_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n",
+//printf ("usb_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n",
 //nwords, base, addr, cmd_aa, cmd_55, cmd_a0);
 	for (i=0; i<nwords; i++) {
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
@@ -722,7 +457,7 @@ void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsign
 	}
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32.\n");
 		exit (-1);
 	}
@@ -732,15 +467,17 @@ void jtag_program_block32 (unsigned nwords, unsigned base, unsigned addr, unsign
 	}
 }
 
-void jtag_program_block32_unprotect (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+void usb_program_block32_unprotect (adapter_t *adapter,
+	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*18 + 6*2*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
 
-	jtag_usleep (10000);
-//printf ("jtag_program_block32_unprotect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
+	mdelay (10);
+//printf ("usb_program_block32_unprotect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
@@ -754,7 +491,7 @@ void jtag_program_block32_unprotect (unsigned nwords, unsigned base, unsigned ad
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x20202020);
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32 Atmel.\n");
 		exit (-1);
 	}
@@ -762,7 +499,7 @@ void jtag_program_block32_unprotect (unsigned nwords, unsigned base, unsigned ad
 		fprintf (stderr, "Timeout programming block32 Atmel, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-	jtag_usleep (10000);
+	mdelay (10);
 
 	ptr = pkt;
 	for (i=0; i<nwords; i++) {
@@ -773,7 +510,7 @@ void jtag_program_block32_unprotect (unsigned nwords, unsigned base, unsigned ad
 	}
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32 Atmel.\n");
 		exit (-1);
 	}
@@ -781,18 +518,20 @@ void jtag_program_block32_unprotect (unsigned nwords, unsigned base, unsigned ad
 		fprintf (stderr, "Timeout programming block32 Atmel, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-	jtag_usleep (40000);
+	mdelay (40);
 }
 
-void jtag_program_block32_protect (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+void usb_program_block32_protect (adapter_t *adapter,
+	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*18 + 6*2*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
 
-	jtag_usleep (10000);
-//printf ("jtag_program_block32_protect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
+	mdelay (10);
+//printf ("usb_program_block32_protect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
@@ -800,7 +539,7 @@ void jtag_program_block32_protect (unsigned nwords, unsigned base, unsigned addr
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
 	ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32 Atmel.\n");
 		exit (-1);
 	}
@@ -808,7 +547,7 @@ void jtag_program_block32_protect (unsigned nwords, unsigned base, unsigned addr
 		fprintf (stderr, "Timeout programming block32 Atmel, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-	jtag_usleep (10000);
+	mdelay (10);
 
 	ptr = pkt;
 	for (i=0; i<nwords; i++) {
@@ -819,7 +558,7 @@ void jtag_program_block32_protect (unsigned nwords, unsigned base, unsigned addr
 	}
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32 Atmel.\n");
 		exit (-1);
 	}
@@ -827,16 +566,18 @@ void jtag_program_block32_protect (unsigned nwords, unsigned base, unsigned addr
 		fprintf (stderr, "Timeout programming block32 Atmel, aborted. OSCR=%#x\n", oscr);
 		exit (1);
 	}
-	jtag_usleep (40000);
+	mdelay (40);
 }
 
-void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+void usb_program_block64 (adapter_t *adapter,
+	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*8*nwords + 6], *ptr = pkt;
 	unsigned oscr, i;
-//printf ("jtag_program_block64 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
+//printf ("usb_program_block64 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
 	for (i=0; i<nwords; i++) {
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd + (addr & 4));
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
@@ -851,7 +592,7 @@ void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsign
 	}
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
-	if (bulk_write_read (pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
 		fprintf (stderr, "Failed to program block32.\n");
 		exit (-1);
 	}
@@ -862,601 +603,93 @@ void jtag_program_block64 (unsigned nwords, unsigned base, unsigned addr, unsign
 }
 
 /*
- * Установка доступа к аппаратным портам ввода-вывода.
+ * Завершение работы с адаптером и освобождение памяти.
  */
-void target_init ()
+static void usb_close (adapter_t *adapter)
 {
-	if (libusb_init (NULL) < 0) {
+	usb_adapter_t *a = (usb_adapter_t*) adapter;
+
+	libusb_release_interface (a->usbdev, 0);
+	libusb_close (a->usbdev);
+	free (a);
+}
+
+/*
+ * Инициализация адаптера USB-JTAG.
+ * Возвращаем указатель на структуру данных, выделяемую динамически.
+ * Если адаптер не обнаружен, возвращаем 0.
+ */
+adapter_t *adapter_open_usb (void)
+{
+	static const unsigned char pkt_reset[8] = {
+		/* Посылаем команду чтения MEM, но с активным TRST. */
+		HDR (H_DEBUG | H_TRST),
+		OnCD_MEM | IRd_READ,
+	};
+	static const unsigned char pkt_getver[8] = {
+		HIR (H_DEBUG | H_TRST | H_SYSRST),
+		IR_BYPASS
+	};
+	usb_adapter_t *a;
+	unsigned char rb[32];
+	int cfg;
+
+	if (libusb_init (0) < 0) {
 		fprintf (stderr, "Failed to initialize libusb.\n");
-		exit (-1);
+		return 0;
 	}
-}
 
-/*
- * Open the device.
- */
-target_t *target_open ()
-{
-	target_t *mc;
-
-	mc = calloc (1, sizeof (target_t));
-	if (! mc) {
+	a = calloc (1, sizeof (*a));
+	if (! a) {
 		fprintf (stderr, "Out of memory\n");
-		exit (-1);
+		return 0;
 	}
-	mc->cpu_name = "Unknown";
-	mc->flash_base[0] = ~0;
-	mc->flash_last[0] = ~0;
-
-	jtag_start ();
-
-	/* For ARM7TDMI must be 0x1f0f0f0f. */
-	mc->idcode = jtag_get_idcode();
-	if (debug)
-		fprintf (stderr, "idcode %08X\n", mc->idcode);
-	switch (mc->idcode) {
-	default:
-		/* Device not detected. */
-		if (mc->idcode == 0xffffffff || mc->idcode == 0)
-			fprintf (stderr, "No response from device -- check power is on!\n");
-		else
-			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
-				mc->idcode);
-		target_close (mc);
-		exit (1);
-	case MC12_ID:
-		mc->cpu_name = "MC12";
-		break;
-	case MC12REV1_ID:
-		mc->cpu_name = "MC12r1";
-		break;
+	a->usbdev = libusb_open_device_with_vid_pid (0, 0x0547, 0x1002);
+	if (! a->usbdev) {
+		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");
+		free (a);
+		return 0;
 	}
-	jtag_reset ();
-	return mc;
-}
+	if (libusb_get_configuration (a->usbdev, &cfg) != 0 || cfg != 1)
+		libusb_set_configuration (a->usbdev, 1);
+	libusb_claim_interface (a->usbdev, 0);
 
-/*
- * Close the device.
- */
-void target_close (target_t *mc)
-{
-	unsigned oscr;
-        int i;
+	bulk_cmd (a->usbdev, ADAPTER_PLL_12MHZ);
+//	bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);
+	mdelay (1);
+	bulk_cmd (a->usbdev, ADAPTER_ACTIVE_RESET);
+	mdelay (1);
+	bulk_cmd (a->usbdev, ADAPTER_DEACTIVE_RESET);
+	mdelay (1);
 
-	/* Clear processor state */
-	for (i=1; i<32; i++) {
-		/* add $i, $0, $0 */
-		exec (0x20 | (i << 11));
+	/* Сброс OnCD. */
+	bulk_write_read (a->usbdev, pkt_reset, 2, rb, 32);
+
+	/* Получить версию прошивки. */
+	if (bulk_write_read (a->usbdev, pkt_getver, 2, rb, 8) != 2) {
+		fprintf (stderr, "Failed to get adapter version.\n");
+		free (a);
+		return 0;
 	}
-	/* Clear pipeline */
-	for (i=0; i<3; i++) {
-		/* add $0, $0, $0 */
-		exec (0x20);
-	}
+	a->hw_version = *(unsigned short*) rb >> 8;
+	fprintf (stderr, "USB adapter version: %02x\n", a->hw_version);
 
-	/* Setup IRdec and PCfetch */
-	oncd_write (0xBFC00000, OnCD_PCfetch);
-	oncd_write (0x20, OnCD_IRdec);
+	/* Обязательные функции. */
+	a->adapter.name = "Elvees USB";
+	a->adapter.close = usb_close;
+	a->adapter.get_idcode = usb_get_idcode;
+	a->adapter.stop_cpu = usb_stop_cpu;
+	a->adapter.oncd_read = usb_oncd_read;
+	a->adapter.oncd_write = usb_oncd_write;
 
-	/* Flush CPU pipeline at exit */
-	oscr = oncd_read (OnCD_OSCR);
-	oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
-	oscr |= OSCR_MPE;
-	oncd_write (oscr, OnCD_OSCR);
+	/* Расширенные возможности. */
+	a->adapter.read_block = usb_read_block;
+	a->adapter.write_block = usb_write_block;
+	a->adapter.write_nwords = usb_write_nwords;
+	a->adapter.program_block32 = usb_program_block32;
+	a->adapter.program_block32_unprotect = usb_program_block32_unprotect;
+	a->adapter.program_block32_protect = usb_program_block32_protect;
+	a->adapter.program_block64 = usb_program_block64;
 
-	/* Exit */
-	oncd_write (0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN);
-
-	libusb_release_interface (usbdev, 0);
-}
-
-/*
- * Add a flash region.
- */
-void target_flash_configure (target_t *mc, unsigned first, unsigned last)
-{
-	int i;
-
-	for (i=0; i<NFLASH-1; ++i) {
-		if (mc->flash_last [i] == ~0) {
-			mc->flash_base [i] = first;
-			mc->flash_last [i] = last;
-			mc->flash_base [i+1] = ~0;
-			mc->flash_last [i+1] = ~0;
-			return;
-		}
-	}
-	fprintf (stderr, "target_flash_configure: too many flash regions.\n");
-	exit (1);
-}
-
-/*
- * Iterate trough all flash regions.
- */
-unsigned target_flash_next (target_t *mc, unsigned prev, unsigned *last)
-{
-	int i;
-
-	if (prev == ~0 && mc->flash_base [0] != ~0) {
-		*last = mc->flash_last [0];
-		return mc->flash_base [0];
-	}
-	for (i=1; i<NFLASH-1 && mc->flash_last[i] != ~0; ++i) {
-		if (prev >= mc->flash_base [i-1] &&
-		    prev <= mc->flash_last [i-1]) {
-			*last = mc->flash_last [i];
-			return mc->flash_base [i];
-		}
-	}
-	return ~0;
-}
-
-char *target_cpu_name (target_t *mc)
-{
-	return mc->cpu_name;
-}
-
-unsigned target_idcode (target_t *mc)
-{
-	return mc->idcode;
-}
-
-unsigned target_flash_width (target_t *mc)
-{
-	return mc->flash_width;
-}
-
-/*
- * Вычисление базового адреса микросхемы flash-памяти.
- */
-static unsigned compute_base (target_t *mc, unsigned addr)
-{
-	int i;
-
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-
-	for (i=0; i<NFLASH && mc->flash_last[i]; ++i) {
-		if (addr >= mc->flash_base [i] &&
-		    addr <= mc->flash_last [i])
-			return mc->flash_base [i];
-	}
-	fprintf (stderr, "target: no flash region for address 0x%08X\n", addr);
-	exit (1);
-	return 0;
-}
-
-int target_flash_detect (target_t *mc, unsigned addr,
-	unsigned *mf, unsigned *dev, char *mfname, char *devname,
-	unsigned *bytes, unsigned *width)
-{
-	int count;
-	unsigned base;
-
-	base = compute_base (mc, addr);
-	for (count=0; count<4*5; ++count) {
-		/* Try both 32 and 64 bus width.*/
-		switch (count % 5) {
-	        case 0:
-			/* Two 16-bit flash chips. */
-			mc->flash_width = 32;
-			mc->flash_addr_odd = 0x5555 << 2;
-			mc->flash_addr_even = 0x2AAA << 2;
-			mc->flash_cmd_aa = FLASH_CMD16_AA;
-			mc->flash_cmd_55 = FLASH_CMD16_55;
-			mc->flash_cmd_10 = FLASH_CMD16_10;
-			mc->flash_cmd_20 = FLASH_CMD16_20;
-			mc->flash_cmd_80 = FLASH_CMD16_80;
-			mc->flash_cmd_90 = FLASH_CMD16_90;
-			mc->flash_cmd_a0 = FLASH_CMD16_A0;
-			mc->flash_cmd_f0 = FLASH_CMD16_F0;
-			mc->flash_devid_offset = 4;
-			break;
-		case 1:
-			/* Four 16-bit flash chips. */
-			mc->flash_width = 64;
-			mc->flash_addr_odd = 0x5555 << 3;
-			mc->flash_addr_even = 0x2AAA << 3;
-			mc->flash_cmd_aa = FLASH_CMD16_AA;
-			mc->flash_cmd_55 = FLASH_CMD16_55;
-			mc->flash_cmd_10 = FLASH_CMD16_10;
-			mc->flash_cmd_20 = FLASH_CMD16_20;
-			mc->flash_cmd_80 = FLASH_CMD16_80;
-			mc->flash_cmd_90 = FLASH_CMD16_90;
-			mc->flash_cmd_a0 = FLASH_CMD16_A0;
-			mc->flash_cmd_f0 = FLASH_CMD16_F0;
-			mc->flash_devid_offset = 8;
-			break;
-		case 2:
-			/* Four 8-bit flash chips, SST/Milandr. */
-			mc->flash_width = 32;
-			mc->flash_addr_odd = 0x555 << 2;
-			mc->flash_addr_even = 0x2AA << 2;
-			mc->flash_cmd_aa = FLASH_CMD8_AA;
-			mc->flash_cmd_55 = FLASH_CMD8_55;
-			mc->flash_cmd_10 = FLASH_CMD8_10;
-			mc->flash_cmd_20 = FLASH_CMD8_20;
-			mc->flash_cmd_80 = FLASH_CMD8_80;
-			mc->flash_cmd_90 = FLASH_CMD8_90;
-			mc->flash_cmd_a0 = FLASH_CMD8_A0;
-			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 4;
-			break;
-		case 3:
-			/* One 8-bit flash chip. */
-			mc->flash_width = 8;
-			mc->flash_addr_odd = 0x555;
-			mc->flash_addr_even = 0x2AA;
-			mc->flash_cmd_aa = FLASH_CMD8_AA;
-			mc->flash_cmd_55 = FLASH_CMD8_55;
-			mc->flash_cmd_10 = FLASH_CMD8_10;
-			mc->flash_cmd_20 = FLASH_CMD8_20;
-			mc->flash_cmd_80 = FLASH_CMD8_80;
-			mc->flash_cmd_90 = FLASH_CMD8_90;
-			mc->flash_cmd_a0 = FLASH_CMD8_A0;
-			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 0;
-			break;
-		case 4:
-			/* Four 8-bit flash chips, Atmel/Angstrem. */
-			mc->flash_width = 32;
-			mc->flash_addr_odd = 0x5555 << 2;
-			mc->flash_addr_even = 0x2AAA << 2;
-			mc->flash_cmd_aa = FLASH_CMD8_AA;
-			mc->flash_cmd_55 = FLASH_CMD8_55;
-			mc->flash_cmd_10 = FLASH_CMD8_10;
-			mc->flash_cmd_20 = FLASH_CMD8_20;
-			mc->flash_cmd_80 = FLASH_CMD8_80;
-			mc->flash_cmd_90 = FLASH_CMD8_90;
-			mc->flash_cmd_a0 = FLASH_CMD8_A0;
-			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 4;
-			mc->flash_delay = 20000;
-			break;
-		default:
-			continue;
-		}
-		/* Read device code. */
-		if (mc->flash_width == 8) {
-			/* Byte-wide data bus. */
-			cscon3 = jtag_read_word (MC_CSCON3) & ~MC_CSCON3_ADDR (3);
-			jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-			jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-			jtag_write_byte (mc->flash_cmd_90, base + mc->flash_addr_odd);
-			*mf = jtag_read_word (base);
-			*dev = (unsigned char) (*mf >> 8);
-			*mf = (unsigned char) *mf;
-
-			/* Stop read ID mode. */
-			jtag_write_byte (mc->flash_cmd_f0, base);
-		} else if (mc->flash_delay) {
-			/* Word-wide data bus. */
-			jtag_usleep (mc->flash_delay);
-			jtag_write_nwords (3, mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				mc->flash_cmd_55, base + mc->flash_addr_even,
-				mc->flash_cmd_90, base + mc->flash_addr_odd);
-			jtag_usleep (mc->flash_delay);
-			*mf = jtag_read_word (base);
-			*dev = jtag_read_word (base + mc->flash_devid_offset);
-			//printf ("base = %08X, dev = %08X, mf = %08X\n", base, *dev, *mf);
-
-			/* Stop read ID mode. */
-			jtag_write_nwords (3, mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				mc->flash_cmd_55, base + mc->flash_addr_even,
-				mc->flash_cmd_f0, base + mc->flash_addr_odd);
-			jtag_usleep (mc->flash_delay);
-		} else {
-			/* Word-wide data bus. */
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-			jtag_write_word (mc->flash_cmd_90, base + mc->flash_addr_odd);
-			*dev = jtag_read_word (base + mc->flash_devid_offset);
-			*mf = jtag_read_word (base);
-
-			/* Stop read ID mode. */
-			jtag_write_word (mc->flash_cmd_f0, base);
-		}
-
-		if (debug > 1)
-			fprintf (stderr, "flash id %08X\n", *dev);
-		switch (*dev) {
-		case ID_29LV800_B:
-			strcpy (devname, "29LV800B");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_29LV800_T:
-			strcpy (devname, "29LV800T");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_39VF800_A:
-			strcpy (devname, "39VF800A");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_39VF6401_B:
-			strcpy (devname, "39VF6401B");
-			mc->flash_bytes = 16*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_1636PP2Y:
-			strcpy (devname, "1636PP2Y");
-			mc->flash_bytes = 4*2*1024*1024;
-			goto success;
-		case ID_1638PP1:
-			strcpy (devname, "1638PP1");
-			mc->flash_bytes = 4*128*1024;
-			goto success;
-		case (unsigned char) ID_1636PP2Y:
-			if (mc->flash_width != 8)
-				break;
-			strcpy (devname, "1636PP2Y");
-			mc->flash_bytes = 2*1024*1024;
-			goto success;
-		}
-	}
-	/* printf ("Unknown flash id = %08X\n", *dev); */
-	return 0;
-success:
-	/* Read MFR code. */
-	switch (*mf) {
-	case ID_ALLIANCE:
-		strcpy (mfname, "Alliance");
-		break;
-	case ID_AMD:
-		strcpy (mfname, "AMD");
-		break;
-	case ID_SST:
-		strcpy (mfname, "SST");
-		break;
-	case ID_MILANDR:
-		strcpy (mfname, "Milandr");
-		break;
-	case ID_ANGSTREM:
-		strcpy (mfname, "Angstrem");
-		break;
-	case (unsigned char) ID_MILANDR:
-		if (mc->flash_width != 8)
-			goto unknown_mfr;
-		strcpy (mfname, "Milandr");
-		break;
-	default:
-unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
-		break;
-	}
-
-	*bytes = mc->flash_bytes;
-	*width = mc->flash_width;
-	return 1;
-}
-
-int target_erase (target_t *mc, unsigned addr)
-{
-	unsigned word, base;
-
-	/* Chip erase. */
-	base = compute_base (mc, addr);
-	printf ("Erase: %08X", base);
-	if (mc->flash_width == 8) {
-		/* 8-разрядная шина. */
-		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (mc->flash_cmd_80, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (mc->flash_cmd_10, base + mc->flash_addr_odd);
-	} else if (mc->flash_delay) {
-		jtag_write_nwords (6, mc->flash_cmd_aa, base + mc->flash_addr_odd,
-			mc->flash_cmd_55, base + mc->flash_addr_even,
-			mc->flash_cmd_80, base + mc->flash_addr_odd,
-			mc->flash_cmd_aa, base + mc->flash_addr_odd,
-			mc->flash_cmd_55, base + mc->flash_addr_even,
-			mc->flash_cmd_10, base + mc->flash_addr_odd);
-	} else {
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd);
-		if (mc->flash_width == 64) {
-			/* Старшая половина 64-разрядной шины. */
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-			jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-			jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd + 4);
-		}
-	}
-	for (;;) {
-		fflush (stdout);
-		jtag_usleep (250000);
-		word = jtag_read_word (base);
-		if (word == 0xffffffff)
-			break;
-		printf (".");
-	}
-	jtag_usleep (250000);
-	printf (" done\n");
-	return 1;
-}
-
-/*
- * Повторная запись реализована только для 8-битной flash-памяти.
- */
-int target_flash_rewrite (target_t *mc, unsigned addr, unsigned word)
-{
-	unsigned bad, base;
-	unsigned char byte;
-
-	base = compute_base (mc, addr);
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-
-	/* Повтор записи возможен, только если не прописались нули. */
-	bad = jtag_read_word (addr);
-	if ((bad & word) != word) {
-		fprintf (stderr, "target: cannot rewrite word at %x\n",
-			addr);
-		exit (1);
-	}
-
-	switch (mc->flash_width) {
-	case 8:
-		/* Вычисляем нужный байт. */
-		for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
-			addr++;
-			word >>= 8;
-		}
-		byte = word;
-//fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
-
-		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				   mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_2bytes (mc->flash_cmd_a0, base + mc->flash_addr_odd,
-				   byte, addr);
-		break;
-	case 64:
-		base += addr & 4;
-		/* fall through...*/
-	case 32:
-		if (mc->flash_delay)
-			return 0;
-fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
-		jtag_write_nwords (4, mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				   mc->flash_cmd_55, base + mc->flash_addr_even,
-				   mc->flash_cmd_a0, base + mc->flash_addr_odd,
-				   word, addr);
-		break;
-	}
-	return 1;
-}
-
-unsigned target_read_word (target_t *mc, unsigned addr)
-{
-	return jtag_read_word (addr);
-}
-
-void target_read_block (target_t *mc, unsigned addr,
-	unsigned nwords, unsigned *data)
-{
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-	while (nwords > 0) {
-		unsigned n = nwords;
-		if (n > 64)
-			n = 64;
-		jtag_read_block (n, addr, data);
-		data += n;
-		addr += n*4;
-		nwords -= n;
-	}
-}
-
-void target_write_block (target_t *mc, unsigned addr,
-	unsigned nwords, unsigned *data)
-{
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-	while (nwords > 0) {
-		unsigned n = nwords;
-		if (n > 64)
-			n = 64;
-		jtag_write_block (n, addr, data);
-		data += n;
-		addr += n*4;
-		nwords -= n;
-	}
-}
-
-void target_write_word (target_t *mc, unsigned addr, unsigned word)
-{
-	if (debug)
-		fprintf (stderr, "write word %08x to %08x\n", word, addr);
-	jtag_write_word (word, addr);
-}
-
-void target_write_next (target_t *mc, unsigned addr, unsigned word)
-{
-	jtag_write_next (word, addr);
-}
-
-void target_program_block (target_t *mc, unsigned addr,
-	unsigned nwords, unsigned *data)
-{
-	unsigned base;
-
-	base = compute_base (mc, addr);
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-//printf ("target_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, mc->flash_width, base);
-	switch (mc->flash_width) {
-	case 8:
-		/* 8-разрядная шина. */
-		/* Unlock bypass. */
-		jtag_write_2bytes (mc->flash_cmd_aa, base + mc->flash_addr_odd,
-				   mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (mc->flash_cmd_20, base + mc->flash_addr_odd);
-		while (nwords-- > 0) {
-			unsigned word = *data++;
-			jtag_write_2bytes (mc->flash_cmd_a0, base, word, addr++);
-			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 8, addr++);
-			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 16, addr++);
-			jtag_write_2bytes (mc->flash_cmd_a0, base, word >> 24, addr++);
-		}
-		/* Reset unlock bypass. */
-		jtag_write_2bytes (mc->flash_cmd_90, base, 0, base);
-		break;
-	case 32:
-		if (mc->flash_delay) {
-			while (nwords > 0) {
-				jtag_program_block32_unprotect (128, base, addr, data,
-					mc->flash_addr_odd, mc->flash_addr_even,
-					mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
-				jtag_program_block32_protect (128, base, addr, data,
-					mc->flash_addr_odd, mc->flash_addr_even,
-					mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
-				if (nwords <= 128)
-					break;
-				data += 128;
-				addr += 128*4;
-				nwords -= 128;
-			}
-		} else {
-			while (nwords > 0) {
-				unsigned n = nwords;
-				if (n > 16)
-					n = 16;
-				jtag_program_block32 (n, base, addr, data,
-					mc->flash_addr_odd, mc->flash_addr_even,
-					mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
-				data += n;
-				addr += n*4;
-				nwords -= n;
-			}
-		}
-		break;
-	case 64:
-		/* 64-разрядная шина. */
-		while (nwords > 0) {
-			unsigned n = nwords;
-			if (n > 16)
-				n = 16;
-			jtag_program_block64 (n, base, addr, data,
-				mc->flash_addr_odd, mc->flash_addr_even,
-				mc->flash_cmd_aa, mc->flash_cmd_55, mc->flash_cmd_a0);
-			data += n;
-			addr += n*4;
-			nwords -= n;
-		}
-		break;
-	}
+	return &a->adapter;
 }
