@@ -299,6 +299,7 @@ static int wait_status (int expected)
 	return -1;
 }
 
+#if 0
 /*
  * Сброс.
  * bitno = 0 - CPU reset
@@ -315,6 +316,7 @@ static void reset (int bitno, int on)
 	putcmd (MCIF_RESET);
 	outb (val, EPP_DATA);
 }
+#endif
 
 /*
  * Загрузка значения в регистр команды IR.
@@ -459,7 +461,7 @@ static void lpt_stop_cpu (adapter_t *adapter)
 {
 	int old_ir, i;
 	unsigned oscr;
-#if 1
+#if 0
 	/* Сброс OnCD. */
 	reset (1, 1);
 	mdelay (50);
@@ -488,7 +490,7 @@ static void lpt_stop_cpu (adapter_t *adapter)
 	oscr = lpt_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_TME;
 	lpt_oncd_write (adapter, oscr, OnCD_OSCR, 32);
-	reset (0, 0);
+/*	reset (0, 0);*/
 }
 
 /*

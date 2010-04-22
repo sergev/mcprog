@@ -325,12 +325,13 @@ void target_close (target_t *t)
 {
 	unsigned oscr;
 	int i;
-
+#if 0
 	/* Clear processor state */
 	for (i=1; i<32; i++) {
 		/* add $i, $0, $0 */
 		target_exec (t, 0x20 | (i << 11));
 	}
+#endif
 	/* Clear pipeline */
 	for (i=0; i<3; i++) {
 		/* add $0, $0, $0 */
