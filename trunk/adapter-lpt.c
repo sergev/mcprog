@@ -614,15 +614,5 @@ adapter_t *adapter_open_lpt (void)
 	a->adapter.stop_cpu = lpt_stop_cpu;
 	a->adapter.oncd_read = lpt_oncd_read;
 	a->adapter.oncd_write = lpt_oncd_write;
-#if 0
-	/* Расширенные возможности. */
-	a->adapter.read_block = lpt_read_block;
-	a->adapter.write_block = lpt_write_block;
-	a->adapter.write_nwords = lpt_write_nwords;
-	a->adapter.program_block32 = lpt_program_block32;
-	a->adapter.program_block32_unprotect = lpt_program_block32_unprotect;
-	a->adapter.program_block32_protect = lpt_program_block32_protect;
-	a->adapter.program_block64 = lpt_program_block64;
-#endif
 	return &a->adapter;
 }

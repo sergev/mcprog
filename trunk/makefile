@@ -23,3 +23,9 @@ install:	mcprog mcprog.conf
 		[ -f //usr/local/etc/mcprog.conf ] || install -c -m644 mcprog.conf /usr/local/etc/mcprog.conf
 
 ###
+adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
+adapter-lpt.o: adapter-lpt.c adapter.h oncd.h
+adapter-usb.o: adapter-usb.c adapter.h oncd.h
+conf.o: conf.c conf.h
+mcprog.o: mcprog.c target.h conf.h
+target.o: target.c target.h adapter.h oncd.h
