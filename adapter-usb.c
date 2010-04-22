@@ -363,21 +363,18 @@ static void usb_write_block (adapter_t *adapter,
 	}
 }
 
-void usb_write_nwords (adapter_t *adapter, unsigned nwords, ...)
+void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 {
 	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*2*nwords + 6], *ptr = pkt;
 	unsigned i, oscr, data, addr;
-        va_list args;
 
-        va_start (args, nwords);
 	for (i=0; i<nwords; i++) {
 		data = va_arg (args, unsigned);
 		addr = va_arg (args, unsigned);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data);
 	}
-        va_end (args);
 	ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
 	if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {

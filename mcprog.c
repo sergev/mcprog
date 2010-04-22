@@ -364,7 +364,6 @@ void do_probe ()
 	unsigned addr, last;
 
 	/* Open and detect the device. */
-	target_init ();
 	atexit (quit);
 	target = target_open ();
 	if (! target) {
@@ -394,7 +393,6 @@ void do_program ()
 	int len;
 	void *t0;
 
-	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
@@ -455,7 +453,6 @@ void do_write ()
 	int len;
 	void *t0;
 
-	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
@@ -506,7 +503,6 @@ void do_read (char *filename)
 		perror (filename);
 		exit (1);
 	}
-	target_init ();
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
 
