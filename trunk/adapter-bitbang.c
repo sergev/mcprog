@@ -30,6 +30,10 @@ typedef struct {
 
 	/* Доступ к устройству через libusb. */
 	usb_dev_handle *usbdev;
+
+	/* Буфер для вывода-ввода в режиме sync bitbang. */
+	unsigned char output [128];
+	int output_len;
 } bitbang_adapter_t;
 
 /*
@@ -105,78 +109,145 @@ static char *oscr_bitname[] = {
 };
 
 /*
- * JTAG i/o.
+ * Add one TCK/TMS/TDI sample to send buffer.
  */
-static int bitbang_io (bitbang_adapter_t *a, int tms, int tdi)
+static void bitbang_write (bitbang_adapter_t *a, int tck, int tms, int tdi)
 {
-	unsigned char data [3], reply [5];
-	int bytes_written, bytes_read, n;
-
-	data[0] = NTRST | NSYSRST;
+	unsigned out_value = NTRST | NSYSRST;
+	if (tck)
+		out_value |= TCK;
 	if (tms)
-		data[0] |= TMS;
+		out_value |= TMS;
 	if (tdi)
-		data[0] |= TDI;
-	data[1] = data[0] | TCK;
-	data[2] = data[0];
+		out_value |= TDI;
 
-	/* Write data. */
-	bytes_written = 0;
-write_more:
-	n = usb_bulk_write (a->usbdev, IN_EP, (char*) data + bytes_written,
-		sizeof(data) - bytes_written, 1000);
-        if (n < 0) {
-		fprintf (stderr, "bitbang_io(): usb bulk write failed\n");
-		exit (1);
+	if (a->output_len >= (int) sizeof (a->output)) {
+		fprintf (stderr, "bitbang_write: buffer overflow\n");
+		exit (-1);
 	}
-	/*if (debug)
-		fprintf (stderr, "bitbang_io() write %u bytes\n", n);*/
-	bytes_written += n;
-	if (bytes_written < sizeof(data))
-		goto write_more;
+	a->output [a->output_len++] = out_value;
+}
 
-	/* Get reply. */
-	bytes_read = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
-		sizeof(reply), 2000);
-	if (bytes_read != sizeof(reply)) {
-		fprintf (stderr, "bitbang_io(): usb bulk read failed\n");
-		switch (bytes_read) {
-		case 0: fprintf (stderr, "bitbang_io() empty read\n"); break;
-		case 1: fprintf (stderr, "bitbang_io() got 1 byte: %02x\n", reply[bytes_read]); break;
-		case 2: fprintf (stderr, "bitbang_io() got 2 bytes: %02x %02x\n", reply[bytes_read], reply[bytes_read+1]); break;
-		case 3: fprintf (stderr, "bitbang_io() got 3 bytes: %02x %02x %02x\n", reply[bytes_read], reply[bytes_read+1], reply[bytes_read+2]); break;
-		case 4: fprintf (stderr, "bitbang_io() got 4 bytes: %02x %02x %02x %02x\n", reply[bytes_read], reply[bytes_read+1], reply[bytes_read+2], reply[bytes_read+3]); break;
+/*
+ * Extract input data from bitbang buffer.
+ */
+static void bitbang_read (bitbang_adapter_t *a,
+	unsigned offset, unsigned nbits, unsigned char *data)
+{
+	unsigned n;
+
+	for (n=0; n<nbits; n++) {
+		if (a->output [offset + n*2 + 1] & READ_TDO)
+			data [n/8] |= 1 << (n & 7);
+		else
+			data [n/8] &= ~(1 << (n & 7));
+	}
+}
+
+/*
+ * Add TMS step (2 samples) to send buffer.
+ */
+static void bitbang_step (bitbang_adapter_t *a, int tms)
+{
+	bitbang_write (a, 0, tms, 1);
+	bitbang_write (a, 1, tms, 1);
+}
+
+/*
+ * Perform sync bitbang output/input transaction.
+ * Befor call, an array a->output[] should be filled with data to send.
+ * Counter a->output_len contains a number of bytes to send.
+ * On return, received data are put back to array a->output[].
+ */
+static void bitbang_send_recv (bitbang_adapter_t *a)
+{
+	int bytes_to_write, bytes_written, n, txdone, rxdone;
+	int empty_rxfifo, bytes_to_read, bytes_read;
+	uint8_t reply [64];
+
+	/* FIFO TX buffer of FT232R chip has size of 128 bytes.
+	 * FIFO RX buffer has 256 bytes. First two receive bytes
+	 * contain modem and line status.
+	 * Unfortunately, transfer sizes bigger that 64 bytes
+	 * frequently cause hang ups. */
+	bitbang_write (a, 0, 1, 1);
+
+	/* RX buffer is empty, except two status bytes. */
+	empty_rxfifo = sizeof(reply) - 2;
+
+	/* Indexes in data buffer. */
+	txdone = 0;
+	rxdone = 0;
+	while (rxdone < a->output_len) {
+		/* Try to send as much as possible,
+		 * but avoid overflow of receive buffer. */
+		bytes_to_write = 64;
+		if (bytes_to_write > a->output_len - txdone)
+			bytes_to_write = a->output_len - txdone;
+		if (bytes_to_write > empty_rxfifo)
+			bytes_to_write = empty_rxfifo;
+
+		/* Write data. */
+		bytes_written = 0;
+		while (bytes_written < bytes_to_write) {
+			if (debug)
+				fprintf (stderr, "usb bulk write %d bytes\n",
+					bytes_to_write - bytes_written);
+			n = usb_bulk_write (a->usbdev, IN_EP,
+				(char*) a->output + txdone + bytes_written,
+				bytes_to_write - bytes_written, 1000);
+			if (n < 0) {
+				fprintf (stderr, "usb bulk write failed\n");
+				exit (-1);
+			}
+			/*if (n != bytes_to_write)
+				fprintf (stderr, "usb bulk written %d bytes of %d",
+					n, bytes_to_write - bytes_written);*/
+			bytes_written += n;
 		}
-		exit (1);
+		txdone += bytes_written;
+		empty_rxfifo -= bytes_written;
+
+		if (empty_rxfifo == 0 || txdone == a->output_len) {
+			/* Get reply. */
+			bytes_to_read = sizeof(reply) - empty_rxfifo - 2;
+			bytes_read = 0;
+			while (bytes_read < bytes_to_read) {
+				n = usb_bulk_read (a->usbdev, OUT_EP,
+					(char*) reply,
+					bytes_to_read - bytes_read + 2, 2000);
+				if (n < 0) {
+					fprintf (stderr, "usb bulk read failed\n");
+					exit (-1);
+				}
+				if (n != bytes_to_read + 2)
+					fprintf (stderr, "usb bulk read %d bytes of %d\n",
+						n, bytes_to_read - bytes_read + 2);
+				else if (debug)
+					fprintf (stderr, "usb bulk read %d bytes\n", n);
+
+				if (n > 2) {
+					/* Copy data. */
+					memcpy (a->output + rxdone, reply + 2, n - 2);
+					bytes_read += n;
+					rxdone += n - 2;
+				}
+			}
+			empty_rxfifo = sizeof(reply) - 2;
+		}
 	}
-	if (debug > 1)
-		fprintf (stderr, "bitbang_io() got %02x %02x %02x %02x %02x %s\n",
-			reply[0], reply[1], reply[2], reply[3], reply[4],
-			(reply[3] & READ_TDO) ? "TDO" : "");
-	return (reply[3] & READ_TDO) != 0;
+	a->output_len = 0;
 }
 
 static void bitbang_close (adapter_t *adapter)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 
-	/* Setup default value of signals. */
-	bitbang_io (a, 1, 1);
-
         if (usb_release_interface (a->usbdev, 0) != 0) {
 		fprintf (stderr, "bitbang_close() usb release interface failed\n");
 	}
 	usb_close (a->usbdev);
 	free (a);
-}
-
-/*
- * Step to next state in TAP machine.
- * Advances to next TAP state depending on TMS value.
- */
-static inline void tap_step (bitbang_adapter_t *a, int tms)
-{
-	bitbang_io (a, tms, 1);
 }
 
 /*
@@ -187,20 +258,26 @@ static inline void tap_step (bitbang_adapter_t *a, int tms)
  */
 static int tap_instr (bitbang_adapter_t *a, int nbits, unsigned newinst)
 {
-	unsigned status = 0, mask;
+	unsigned status = 0, mask, input_offset, tms, tdi, n;
 
-	tap_step (a, 1);		/* goto Select-DR-Scan */
-	tap_step (a, 1);		/* goto Select-IR-Scan */
-	tap_step (a, 0);		/* goto Capture-IR */
-	tap_step (a, 0);		/* goto Shift-IR */
-	for (mask=1; nbits; --nbits) {
+	bitbang_step (a, 1);		/* goto Select-DR-Scan */
+	bitbang_step (a, 1);		/* goto Select-IR-Scan */
+	bitbang_step (a, 0);		/* goto Capture-IR */
+	bitbang_step (a, 0);		/* goto Shift-IR */
+	input_offset = a->output_len;
+	mask = 1;
+	for (n=0; n<nbits; n++) {
 		/* If last bit, put TMS=1 to exit Shift-IR state */
-		if (bitbang_io (a, nbits == 1, newinst & mask))
-			status |= mask;
+		tms = (n == nbits-1);
+		tdi = newinst & mask;
 		mask <<= 1;
+		bitbang_write (a, 0, tms, tdi);
+		bitbang_write (a, 1, tms, tdi);
 	}
-	tap_step (a, 1);		/* goto Update-IR */
+	bitbang_step (a, 1);		/* goto Update-IR */
 /*fprintf (stderr, "tap_instr() status = %#x\n", status);*/
+	bitbang_send_recv (a);
+	bitbang_read (a, input_offset, nbits, (unsigned char*) &status);
 	return status;
 }
 
@@ -209,39 +286,39 @@ static int tap_instr (bitbang_adapter_t *a, int nbits, unsigned newinst)
  *
  * Assumes TAP is on Run-Test/Idle or Update-DR/Update-IR states at entry.
  * On exit, stays at Update-DR/Update-IR.
- * Newdata is an array of 32-bit words with the bit stream to send,
+ * Newdata is an array of bytes with the bit stream to send,
  * LSB first. The total number of bits to send is nbits.
  * The readout bit stream is stored in olddata[].
  * If newdata is NULL, zeros are sent in the data stream.
  * If olddata is NULL, readout bits are thrown away.
  */
 static void tap_data (bitbang_adapter_t *a,
-	int nbits, unsigned char *newdata, unsigned char *olddata)
+	unsigned nbits, unsigned char *newdata, unsigned char *olddata)
 {
-	unsigned databits = 0, readbits = 0;
+	unsigned databits = 0, input_offset, tms, tdi, n;
 	unsigned char mask = 0;
 
-	tap_step (a, 1);			/* goto Select-DR-Scan */
-	tap_step (a, 0);			/* goto Capture-DR */
-	tap_step (a, 0);			/* goto Shift-DR */
-	for (; nbits; --nbits) {
+	bitbang_step (a, 1);			/* goto Select-DR-Scan */
+	bitbang_step (a, 0);			/* goto Capture-DR */
+	bitbang_step (a, 0);			/* goto Shift-DR */
+	input_offset = a->output_len;
+	for (n=0; n<nbits; n++) {
 		if (mask == 0) {		/* every 8 bits sent... */
 			if (newdata)		/* ...get a new word */
 				databits = *newdata++;
 			mask = 1;
-			readbits = 0;
 		}
 		/* If last bit, put TMS=1 to exit Shift-DR state */
-		if (bitbang_io (a, nbits == 1, databits & mask))
-			readbits |= mask;	/* compose readout data */
+		tms = (n == nbits-1);
+		tdi = databits & mask;
 		mask <<= 1;
-		if (olddata) {
-			*olddata = readbits;	/* save every new bit */
-			if (mask == 0)		/* after 32 bits, move ptr */
-				olddata++;
-		}
+		bitbang_write (a, 0, tms, tdi);
+		bitbang_write (a, 1, tms, tdi);
 	}
-	tap_step (a, 1);			/* goto Update-DR */
+	bitbang_step (a, 1);			/* goto Update-DR */
+	bitbang_send_recv (a);
+	if (olddata)
+		bitbang_read (a, input_offset, nbits, olddata);
 }
 
 /*
@@ -253,12 +330,12 @@ static unsigned bitbang_get_idcode (adapter_t *adapter)
 	unsigned idcode = 0;
 
 	/* Reset the JTAG TAP controller. */
-	tap_step (a, 1);
-	tap_step (a, 1);
-	tap_step (a, 1);
-	tap_step (a, 1);		/* 5 cycles with TMS=1 */
-	tap_step (a, 1);
-	tap_step (a, 0);		/* TMS=0 to enter run-test/idle */
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);		/* 5 cycles with TMS=1 */
+	bitbang_step (a, 1);
+	bitbang_step (a, 0);		/* TMS=0 to enter run-test/idle */
 
 	tap_instr (a, 4, TAP_IDCODE);	/* Select IDCODE register */
 	tap_data (a, 32, 0,		/* Read out 32 bits into idcode */
@@ -461,12 +538,13 @@ failed:		usb_release_interface (a->usbdev, 0);
 		fprintf (stderr, "Bitbang: latency timer: %u usec\n", latency_timer);
 
 	/* Reset the JTAG TAP controller. */
-	bitbang_io (a, 1, 1);
-	bitbang_io (a, 1, 1);
-	bitbang_io (a, 1, 1);
-	bitbang_io (a, 1, 1);	/* 5 cycles with TMS=1 */
-	bitbang_io (a, 1, 1);
-	bitbang_io (a, 0, 1);	/* TMS=0 to enter run-test/idle */
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);
+	bitbang_step (a, 1);	/* 5 cycles with TMS=1 */
+	bitbang_step (a, 1);
+	bitbang_step (a, 0);	/* TMS=0 to enter run-test/idle */
+	bitbang_send_recv (a);
 
 	/* Обязательные функции. */
 	a->adapter.name = "Bitbang";
@@ -475,16 +553,6 @@ failed:		usb_release_interface (a->usbdev, 0);
 	a->adapter.stop_cpu = bitbang_stop_cpu;
 	a->adapter.oncd_read = bitbang_oncd_read;
 	a->adapter.oncd_write = bitbang_oncd_write;
-#if 0
-	/* Расширенные возможности. */
-	a->adapter.read_block = bitbang_read_block;
-	a->adapter.write_block = bitbang_write_block;
-	a->adapter.write_nwords = bitbang_write_nwords;
-	a->adapter.program_block32 = bitbang_program_block32;
-	a->adapter.program_block32_unprotect = bitbang_program_block32_unprotect;
-	a->adapter.program_block32_protect = bitbang_program_block32_protect;
-	a->adapter.program_block64 = bitbang_program_block64;
-#endif
 	return &a->adapter;
 }
 
@@ -492,42 +560,47 @@ failed:		usb_release_interface (a->usbdev, 0);
 static int bitbang_test (adapter_t *adapter, int iterations)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
-	unsigned result, mask, last_bit = 0;
-	unsigned pattern = 0;
+	unsigned result, mask, tdi, last_bit = 0;
+	unsigned input_offset, pattern = 0;
 
 	tap_instr (a, 4, TAP_BYPASS);	/* Enter BYPASS mode. */
-	tap_step (a, 1);		/* goto Select-DR-Scan */
-	tap_step (a, 0);		/* goto Capture-DR */
-	tap_step (a, 0);		/* goto Shift-DR */
+	bitbang_step (a, 1);		/* goto Select-DR-Scan */
+	bitbang_step (a, 0);		/* goto Capture-DR */
+	bitbang_step (a, 0);		/* goto Shift-DR */
 	do {
 		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
 
 		/* Pass the pattern through TDI-TDO. */
-		result = 0;
-		mask = 1;
-		do {
-			if (bitbang_io (a, 0, pattern & mask))
-				result += mask;
-		} while (mask <<= 1);
+		input_offset = a->output_len;
+		for (mask=1; mask; mask<<=1) {
+			tdi = pattern & mask;
+			bitbang_write (a, 0, 0, tdi);
+			bitbang_write (a, 1, 0, tdi);
+		}
+		bitbang_send_recv (a);
+		bitbang_read (a, input_offset, 32, (unsigned char*) &result);
 
 		fprintf (stderr, "tap_test sent %08x received %08x\n",
 			pattern<<1 | last_bit, result);
 		if ((result & 1) != last_bit ||
 		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {
 			/* Reset the JTAG TAP controller. */
-			tap_step (a, 1);
-			tap_step (a, 1);
-			tap_step (a, 1);
-			tap_step (a, 1); /* 5 cycles with TMS=1 */
-			tap_step (a, 1);
-			tap_step (a, 0); /* TMS=0 to enter run-test/idle */
+			bitbang_step (a, 1);
+			bitbang_step (a, 1);
+			bitbang_step (a, 1);
+			bitbang_step (a, 1); /* 5 cycles with TMS=1 */
+			bitbang_step (a, 1);
+			bitbang_step (a, 0); /* TMS=0 to enter run-test/idle */
+			bitbang_send_recv (a);
 			return 0;
 		}
 		last_bit = pattern >> 31;
 	} while (--iterations > 0);
-	tap_step (a, 1);		/* goto Exit1-DR */
-	tap_step (a, 1);		/* goto Update-DR */
-	tap_step (a, 0);		/* Run-Test/idle => exec instr. */
+
+	bitbang_step (a, 1);		/* goto Exit1-DR */
+	bitbang_step (a, 1);		/* goto Update-DR */
+	bitbang_step (a, 0);		/* Run-Test/idle => exec instr. */
+	bitbang_send_recv (a);
 	return 1;
 }
 
@@ -591,7 +664,7 @@ usage:		printf ("Test for FT232R JTAG adapter.\n");
 
 		} else if (strcmp ("idcode", argv[0]) == 0) {
 			int i;
-			for (i=0; i<10; ++i)
+			for (i=0; i<20; ++i)
 				printf ("IDCODE = %08x\n", bitbang_get_idcode (adapter));
 		} else {
 			bitbang_close (adapter);
