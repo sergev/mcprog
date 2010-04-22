@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
@@ -309,7 +308,7 @@ static unsigned char *fill_pkt (unsigned char *ptr, unsigned cmd,
 }
 
 /*
- * Чтение 32-битного регистра OnCD.
+ * Чтение регистра OnCD.
  */
 static unsigned usb_oncd_read (adapter_t *adapter, int reg, int nbits)
 {
@@ -638,7 +637,7 @@ adapter_t *adapter_open_usb (void)
 	}
 	a->usbdev = libusb_open_device_with_vid_pid (0, 0x0547, 0x1002);
 	if (! a->usbdev) {
-		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");
+/*		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");*/
 		free (a);
 		return 0;
 	}
@@ -647,7 +646,7 @@ adapter_t *adapter_open_usb (void)
 	libusb_claim_interface (a->usbdev, 0);
 
 	bulk_cmd (a->usbdev, ADAPTER_PLL_12MHZ);
-//	bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);
+/*	bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);*/
 	mdelay (1);
 	bulk_cmd (a->usbdev, ADAPTER_ACTIVE_RESET);
 	mdelay (1);

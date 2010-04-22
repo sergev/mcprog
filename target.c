@@ -280,12 +280,10 @@ target_t *target_open ()
 
 	/* Ищем адаптер JTAG: USB, bitbang или LPT. */
 	t->adapter = adapter_open_usb ();
-#if 0
 	if (! t->adapter)
 		t->adapter = adapter_open_bitbang ();
 	if (! t->adapter)
 		t->adapter = adapter_open_lpt ();
-#endif
 	if (! t->adapter) {
 		fprintf (stderr, "No JTAG adapter found.\n");
 		exit (-1);
@@ -822,9 +820,14 @@ static void target_program_block32 (target_t *t, unsigned addr,
 		}
 		return;
 	}
-	/*TODO*/
-	fprintf (stderr, "target_program_block32() not implemented yet.\n");
-	exit (-1);
+	while (nwords-- > 0) {
+		target_write_nwords (t, 4,
+			t->flash_cmd_aa, base + t->flash_addr_odd,
+			t->flash_cmd_55, base + t->flash_addr_even,
+			t->flash_cmd_a0, base + t->flash_addr_odd,
+			*data++, addr);
+		addr += 4;
+	}
 }
 
 static void target_program_block32_atmel (target_t *t, unsigned addr,
@@ -871,9 +874,18 @@ static void target_program_block64 (target_t *t, unsigned addr,
 		}
 		return;
 	}
-	/*TODO*/
-	fprintf (stderr, "target_program_block64() not implemented yet.\n");
-	exit (-1);
+	if (addr & 4) {
+		/* Старшая половина 64-разрядной шины. */
+		base += 4;
+	}
+	while (nwords-- > 0) {
+		target_write_nwords (t, 4,
+			t->flash_cmd_aa, base + t->flash_addr_odd,
+			t->flash_cmd_55, base + t->flash_addr_even,
+			t->flash_cmd_a0, base + t->flash_addr_odd,
+			*data++, addr);
+		addr += 4;
+	}
 }
 
 void target_program_block (target_t *t, unsigned addr,

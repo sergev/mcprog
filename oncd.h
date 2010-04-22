@@ -13,6 +13,17 @@
  * либо (по вашему желанию) любой более поздней версии. Подробности
  * смотрите в прилагаемом файле 'COPYING.txt'.
  */
+
+/*
+ * Команды JTAG TAP для Elvees.
+ */
+#define TAP_EXTEST		0x0
+#define TAP_SAMPLE		0x1
+#define TAP_IDCODE		0x03	/* Select the ID register */
+#define TAP_DEBUG_REQUEST	0x04	/* Stop processor */
+#define TAP_DEBUG_ENABLE	0x05	/* Put processor in debug mode */
+#define TAP_BYPASS		0x0F	/* Select the BYPASS register */
+
 /* Регистр IRd команды JTAG */
 #define IR_EXTEST		0x00
 #define IR_SAMPLE_PRELOAD	0x11
