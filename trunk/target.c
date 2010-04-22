@@ -130,7 +130,7 @@ static void target_exec (target_t *t, unsigned instr)
 /*
  * Запись слова в память.
  */
-void target_write_next (target_t *t, unsigned data, unsigned phys_addr)
+void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 {
 	unsigned wait, oscr;
 
@@ -157,7 +157,7 @@ void target_write_next (target_t *t, unsigned data, unsigned phys_addr)
 	}
 }
 
-void target_write_word (target_t *t, unsigned data, unsigned phys_addr)
+void target_write_word (target_t *t, unsigned phys_addr, unsigned data)
 {
 	unsigned oscr;
 
@@ -171,7 +171,7 @@ void target_write_word (target_t *t, unsigned data, unsigned phys_addr)
 	oscr &= ~OSCR_RO;
 	t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 
-	target_write_next (t, data, phys_addr);
+	target_write_next (t, phys_addr, data);
 }
 
 /*
@@ -198,7 +198,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 
 	t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
 	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
-	for (wait = 1000; wait != 0; wait--) {
+	for (wait = 10; wait != 0; wait--) {
 		oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
@@ -206,7 +206,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 	}
 	if (wait == 0) {
 		fprintf (stderr, "Timeout reading memory, aborted.\n");
-		exit (1);
+/*		exit (1);*/
 	}
 	data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
 	if (debug)
@@ -236,7 +236,7 @@ void target_write_nwords (target_t *t, unsigned nwords, ...)
 	exit (-1);
 }
 
-void target_write_byte (target_t *t, unsigned data, unsigned addr)
+void target_write_byte (target_t *t, unsigned addr, unsigned data)
 {
 	if (t->adapter->write_nwords) {
 		target_write_nwords (t, 2,
@@ -249,8 +249,8 @@ void target_write_byte (target_t *t, unsigned data, unsigned addr)
 	exit (-1);
 }
 
-void target_write_2bytes (target_t *t, unsigned data1, unsigned addr1,
-	unsigned data2, unsigned addr2)
+void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
+	unsigned addr2, unsigned data2)
 {
 	if (t->adapter->write_nwords) {
 		target_write_nwords (t, 4,
@@ -525,15 +525,15 @@ int target_flash_detect (target_t *t, unsigned addr,
 		/* Read device code. */
 		if (t->flash_width == 8) {
 			/* Byte-wide data bus. */
-			target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-			target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
-			target_write_byte (t, t->flash_cmd_90, base + t->flash_addr_odd);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_90);
 			*mf = target_read_word (t, base);
 			*dev = (unsigned char) (*mf >> 8);
 			*mf = (unsigned char) *mf;
 
 			/* Stop read ID mode. */
-			target_write_byte (t, t->flash_cmd_f0, base);
+			target_write_byte (t, base, t->flash_cmd_f0);
 		} else if (t->flash_delay) {
 			/* Word-wide data bus. */
 			mdelay (t->flash_delay);
@@ -552,14 +552,14 @@ int target_flash_detect (target_t *t, unsigned addr,
 			mdelay (t->flash_delay);
 		} else {
 			/* Word-wide data bus. */
-			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
-			target_write_word (t, t->flash_cmd_90, base + t->flash_addr_odd);
+			target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_90);
 			*dev = target_read_word (t, base + t->flash_devid_offset);
 			*mf = target_read_word (t, base);
 
 			/* Stop read ID mode. */
-			target_write_word (t, t->flash_cmd_f0, base);
+			target_write_word (t, base, t->flash_cmd_f0);
 		}
 
 		if (debug > 1)
@@ -641,12 +641,12 @@ int target_erase (target_t *t, unsigned addr)
 	printf ("Erase: %08X", base);
 	if (t->flash_width == 8) {
 		/* 8-разрядная шина. */
-		target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-		target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_byte (t, t->flash_cmd_80, base + t->flash_addr_odd);
-		target_write_byte (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-		target_write_byte (t, t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_byte (t, t->flash_cmd_10, base + t->flash_addr_odd);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_10);
 	} else if (t->flash_delay) {
 		target_write_nwords (t, 6, t->flash_cmd_aa, base + t->flash_addr_odd,
 			t->flash_cmd_55, base + t->flash_addr_even,
@@ -655,20 +655,20 @@ int target_erase (target_t *t, unsigned addr)
 			t->flash_cmd_55, base + t->flash_addr_even,
 			t->flash_cmd_10, base + t->flash_addr_odd);
 	} else {
-		target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-		target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_word (t, t->flash_cmd_80, base + t->flash_addr_odd);
-		target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd);
-		target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_word (t, t->flash_cmd_10, base + t->flash_addr_odd);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_10);
 		if (t->flash_width == 64) {
 			/* Старшая половина 64-разрядной шины. */
-			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd + 4);
-			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even + 4);
-			target_write_word (t, t->flash_cmd_80, base + t->flash_addr_odd + 4);
-			target_write_word (t, t->flash_cmd_aa, base + t->flash_addr_odd + 4);
-			target_write_word (t, t->flash_cmd_55, base + t->flash_addr_even + 4);
-			target_write_word (t, t->flash_cmd_10, base + t->flash_addr_odd + 4);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_10);
 		}
 	}
 	for (;;) {
@@ -716,10 +716,10 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 		byte = word;
 //fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
 
-		target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
-				   t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_2bytes (t, t->flash_cmd_a0, base + t->flash_addr_odd,
-				   byte, addr);
+		target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+					base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_a0,
+					addr, byte);
 		break;
 	case 64:
 		base += addr & 4;
@@ -791,18 +791,18 @@ static void target_program_block8 (target_t *t, unsigned addr,
 	unsigned base, unsigned nwords, unsigned *data)
 {
 	/* Unlock bypass. */
-	target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
-			   t->flash_cmd_55, base + t->flash_addr_even);
-	target_write_byte (t, t->flash_cmd_20, base + t->flash_addr_odd);
+	target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+		base + t->flash_addr_even, t->flash_cmd_55);
+	target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_20);
 	while (nwords-- > 0) {
 		unsigned word = *data++;
-		target_write_2bytes (t, t->flash_cmd_a0, base, word, addr++);
-		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 8, addr++);
-		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 16, addr++);
-		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 24, addr++);
+		target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word);
+		target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 8);
+		target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 16);
+		target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 24);
 	}
 	/* Reset unlock bypass. */
-	target_write_2bytes (t, t->flash_cmd_90, base, 0, base);
+	target_write_2bytes (t, base, t->flash_cmd_90, base, 0);
 }
 
 static void target_program_block32 (target_t *t, unsigned addr,

@@ -97,6 +97,13 @@ static char *oncd_regname[] = {
 	"OMDR",		"MEM",		"PCwb",		"EXIT",
 };
 
+static char *oscr_bitname[] = {
+	"SlctMEM",	"RO",		"TME",		"IME",
+	"MPE",		"RDYm",		"MBO",		"TO",
+	"SWO",		"SO",		"DBM",		"NDS",
+	"VBO",		"NFEXP",	"WP0",		"WP1",
+};
+
 /*
  * JTAG i/o.
  */
@@ -149,6 +156,48 @@ write_more:
 	return (reply[3] & READ_TDO) != 0;
 }
 
+#if 0
+/*
+ * JTAG reset.
+ */
+static int bitbang_reset (bitbang_adapter_t *a, int trst, int sysrst)
+{
+	unsigned char data [2], reply [4];
+	int bytes_written, bytes_read, n;
+
+	data[0] = NTRST | NSYSRST;
+	data[1] = data[0];
+	if (trst)
+		data[0] &= ~NTRST;
+	if (sysrst)
+		data[0] &= ~NSYSRST;
+
+	/* Write data. */
+	bytes_written = 0;
+write_more:
+	n = usb_bulk_write (a->usbdev, IN_EP, (char*) data + bytes_written,
+		sizeof(data) - bytes_written, 1000);
+        if (n < 0) {
+		fprintf (stderr, "bitbang_reset(): usb bulk write failed\n");
+		exit (1);
+	}
+	if (debug)
+		fprintf (stderr, "bitbang_reset(%d, %d) write %u bytes\n", trst, sysrst, n);
+	bytes_written += n;
+	if (bytes_written < sizeof(data))
+		goto write_more;
+
+	/* Get reply. */
+	bytes_read = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
+		sizeof(reply), 2000);
+	if (bytes_read != sizeof(reply)) {
+		fprintf (stderr, "bitbang_reset(): usb bulk read failed\n");
+		exit (1);
+	}
+	return (reply[3] & READ_TDO) != 0;
+}
+#endif
+
 static void bitbang_close (adapter_t *adapter)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
@@ -194,7 +243,7 @@ static int tap_instr (bitbang_adapter_t *a, int nbits, unsigned newinst)
 	}
 	tap_step (a, 1);		/* goto Update-IR */
 /*fprintf (stderr, "tap_instr() status = %#x\n", status);*/
-	return status & 4;
+	return status;
 }
 
 /*
@@ -259,24 +308,42 @@ static unsigned bitbang_get_idcode (adapter_t *adapter)
 	return idcode;
 }
 
+static void print_oscr_bits (unsigned value)
+{
+	int i;
+
+	fprintf (stderr, " (");
+	for (i=15; i>=0; i--)
+		if (value & (1 << i)) {
+			fprintf (stderr, "%s", oscr_bitname [i]);
+			if (value & ((1 << i) - 1))
+				fprintf (stderr, ",");
+		}
+	fprintf (stderr, ")");
+}
+
 /*
  * Чтение регистра OnCD.
  */
 static unsigned bitbang_oncd_read (adapter_t *adapter, int reg, int reglen)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
-	unsigned char data[5];
+	unsigned long long data;
 	unsigned value;
 
-	data[0] = reg | IRd_READ;
-	data[1] = 0;
-	data[2] = 0;
-	data[3] = 0;
-	data[4] = 0;
-	tap_data (a, 8 + reglen, data, data);
-	value = data[1] | data[2] << 8 | data[3] << 16 | data[4] << 24;
-	if (debug)
-		fprintf (stderr, "OnCD read %08x from %s\n", value, oncd_regname [reg]);
+	data = reg | IRd_READ;
+	tap_data (a, 9 + reglen,
+		(unsigned char*) &data, (unsigned char*) &data);
+	value = data >> 9;
+	if (debug) {
+		if (reg == OnCD_OSCR) {
+			fprintf (stderr, "OnCD read %04x", value);
+			if (value)
+				print_oscr_bits (value);
+			fprintf (stderr, " from OSCR\n");
+		} else
+			fprintf (stderr, "OnCD read %08x from %s\n", value, oncd_regname [reg]);
+	}
 	return value;
 }
 
@@ -287,18 +354,28 @@ static void bitbang_oncd_write (adapter_t *adapter,
 	unsigned value, int reg, int reglen)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
-	unsigned char data[5];
+	unsigned long long data;
 
-	if (debug)
-		fprintf (stderr, "OnCD write %08x to %s\n", value, oncd_regname [reg]);
-	data[0] = reg;
-	if (reglen > 0) {
-		data[1] = value;
-		data[2] = value >> 8;
-		data[3] = value >> 16;
-		data[4] = value >> 24;
+	if (debug) {
+		if (reg == OnCD_OSCR) {
+			fprintf (stderr, "OnCD write %04x", value);
+			if (value)
+				print_oscr_bits (value);
+			fprintf (stderr, " to OSCR\n");
+		} else {
+			fprintf (stderr, "OnCD write %08x to %s",
+				value, oncd_regname [reg & 15]);
+			if (reg & IRd_RUN)        fprintf (stderr, "+RUN");
+			if (reg & IRd_READ)       fprintf (stderr, "+READ");
+			if (reg & IRd_FLUSH_PIPE) fprintf (stderr, "+FLUSH_PIPE");
+			if (reg & IRd_STEP_1CLK)  fprintf (stderr, "+STEP_1CLK");
+			fprintf (stderr, "\n");
+		}
 	}
-	tap_data (a, 8 + reglen, data, 0);
+	data = reg;
+	if (reglen > 0)
+		data |= (unsigned long long) value << 9;
+	tap_data (a, 9 + reglen, (unsigned char*) &data, 0);
 }
 
 /*
@@ -311,6 +388,10 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	unsigned old_ir, i, oscr;
 
 fprintf (stderr, "bitbang_stop_cpu() called\n");
+#if 0
+	/* Сброс процессора. */
+	bitbang_reset (a, 0, 1);
+#endif
 	/* Debug request. */
 	tap_instr (a, 4, TAP_DEBUG_REQUEST);
 
@@ -318,8 +399,8 @@ fprintf (stderr, "bitbang_stop_cpu() called\n");
 	i = 0;
 	for (;;) {
 		old_ir = tap_instr (a, 4, TAP_DEBUG_ENABLE);
-fprintf (stderr, "bitbang_stop_cpu() old_ir = %#x\n", old_ir);
-		if (old_ir & 0x4)
+/*fprintf (stderr, "bitbang_stop_cpu() old_ir = %#x\n", old_ir);*/
+		if (old_ir == 5)
 			break;
 		mdelay (10);
 		if (++i >= 50) {
@@ -331,7 +412,7 @@ fprintf (stderr, "bitbang_stop_cpu() old_ir = %#x\n", old_ir);
 	oscr = bitbang_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_TME;
 	bitbang_oncd_write (adapter, oscr, OnCD_OSCR, 32);
-fprintf (stderr, "bitbang_stop_cpu() returned\n");
+/*fprintf (stderr, "bitbang_stop_cpu() returned\n");*/
 }
 
 /*
