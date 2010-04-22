@@ -22,7 +22,7 @@ struct _adapter_t {
 		unsigned nwords, unsigned addr, unsigned *data);
 	void (*write_block) (adapter_t *adapter,
 		unsigned nwords, unsigned addr, unsigned *data);
-	void (*write_nwords) (adapter_t *adapter, unsigned nwords, ...);
+	void (*write_nwords) (adapter_t *adapter, unsigned nwords, va_list args);
 	void (*program_block32) (adapter_t *adapter,
 		unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 		unsigned addr_odd, unsigned addr_even,

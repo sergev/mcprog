@@ -159,6 +159,10 @@ void target_write_word (target_t *t, unsigned data, unsigned phys_addr)
 {
 	unsigned oscr;
 
+	if (debug)
+		fprintf (stderr, "write word %08x to %08x\n",
+			data, phys_addr);
+
 	/* Allow memory access */
 	oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_SlctMEM;
@@ -215,10 +219,15 @@ unsigned target_read_word (target_t *t, unsigned phys_addr)
 
 void target_write_nwords (target_t *t, unsigned nwords, ...)
 {
+	va_list args;
+
+	va_start (args, nwords);
 	if (t->adapter->write_nwords) {
-		t->adapter->write_nwords (t->adapter, nwords, ...);
+		t->adapter->write_nwords (t->adapter, nwords, args);
+		va_end (args);
 		return;
 	}
+	va_end (args);
 	/*TODO*/
 	fprintf (stderr, "target_write_nwords() not implemented yet.\n");
 	exit (-1);
@@ -227,7 +236,7 @@ void target_write_nwords (target_t *t, unsigned nwords, ...)
 void target_write_byte (target_t *t, unsigned data, unsigned addr)
 {
 	if (t->adapter->write_nwords) {
-		t->adapter->write_nwords (t->adapter, 2,
+		target_write_nwords (t, 2,
 			t->cscon3 | MC_CSCON3_ADDR (addr), MC_CSCON3,
 			data, addr);
 		return;
@@ -241,7 +250,7 @@ void target_write_2bytes (target_t *t, unsigned data1, unsigned addr1,
 	unsigned data2, unsigned addr2)
 {
 	if (t->adapter->write_nwords) {
-		t->adapter->write_nwords (t->adapter, 4,
+		target_write_nwords (t, 4,
 			t->cscon3 | MC_CSCON3_ADDR (addr1),
 			MC_CSCON3, data1, addr1,
 			t->cscon3 | MC_CSCON3_ADDR (addr2),
@@ -314,7 +323,7 @@ target_t *target_open ()
 void target_close (target_t *t)
 {
 	unsigned oscr;
-        int i;
+	int i;
 
 	/* Clear processor state */
 	for (i=1; i<32; i++) {
@@ -433,7 +442,7 @@ int target_flash_detect (target_t *t, unsigned addr,
 	for (count=0; count<4*5; ++count) {
 		/* Try both 32 and 64 bus width.*/
 		switch (count % 5) {
-	        case 0:
+		case 0:
 			/* Two 16-bit flash chips. */
 			t->flash_width = 32;
 			t->flash_addr_odd = 0x5555 << 2;
@@ -734,15 +743,22 @@ void target_read_block (target_t *t, unsigned addr,
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
-	while (nwords > 0) {
-		unsigned n = nwords;
-		if (n > 64)
-			n = 64;
-		jtag_read_block (n, addr, data);
-		data += n;
-		addr += n*4;
-		nwords -= n;
+
+	if (t->adapter->read_block) {
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 64)
+				n = 64;
+			t->adapter->read_block (t->adapter, n, addr, data);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		return;
 	}
+	/*TODO*/
+	fprintf (stderr, "target_read_block() not implemented yet.\n");
+	exit (-1);
 }
 
 void target_write_block (target_t *t, unsigned addr,
@@ -752,22 +768,112 @@ void target_write_block (target_t *t, unsigned addr,
 		addr -= 0xA0000000;
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
-	while (nwords > 0) {
-		unsigned n = nwords;
-		if (n > 64)
-			n = 64;
-		jtag_write_block (n, addr, data);
-		data += n;
-		addr += n*4;
-		nwords -= n;
+
+	if (t->adapter->write_block) {
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 64)
+				n = 64;
+			t->adapter->write_block (t->adapter, n, addr, data);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		return;
 	}
+	/*TODO*/
+	fprintf (stderr, "target_write_block() not implemented yet.\n");
+	exit (-1);
 }
 
-void target_write_word (target_t *t, unsigned addr, unsigned word)
+static void target_program_block8 (target_t *t, unsigned addr,
+	unsigned base, unsigned nwords, unsigned *data)
 {
-	if (debug)
-		fprintf (stderr, "write word %08x to %08x\n", word, addr);
-	jtag_write_word (word, addr);
+	/* Unlock bypass. */
+	target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
+			   t->flash_cmd_55, base + t->flash_addr_even);
+	target_write_byte (t, t->flash_cmd_20, base + t->flash_addr_odd);
+	while (nwords-- > 0) {
+		unsigned word = *data++;
+		target_write_2bytes (t, t->flash_cmd_a0, base, word, addr++);
+		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 8, addr++);
+		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 16, addr++);
+		target_write_2bytes (t, t->flash_cmd_a0, base, word >> 24, addr++);
+	}
+	/* Reset unlock bypass. */
+	target_write_2bytes (t, t->flash_cmd_90, base, 0, base);
+}
+
+static void target_program_block32 (target_t *t, unsigned addr,
+	unsigned base, unsigned nwords, unsigned *data)
+{
+	if (t->adapter->program_block32) {
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 16)
+				n = 16;
+			t->adapter->program_block32 (t->adapter,
+				n, base, addr, data,
+				t->flash_addr_odd, t->flash_addr_even,
+				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_program_block32() not implemented yet.\n");
+	exit (-1);
+}
+
+static void target_program_block32_atmel (target_t *t, unsigned addr,
+	unsigned base, unsigned nwords, unsigned *data)
+{
+	if (t->adapter->program_block32_protect) {
+		while (nwords > 0) {
+			t->adapter->program_block32_unprotect (t->adapter,
+				128, base, addr, data,
+				t->flash_addr_odd, t->flash_addr_even,
+				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+			t->adapter->program_block32_protect (t->adapter,
+				128, base, addr, data,
+				t->flash_addr_odd, t->flash_addr_even,
+				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+			if (nwords <= 128)
+				break;
+			data += 128;
+			addr += 128*4;
+			nwords -= 128;
+		}
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_program_block32_atmel() not implemented yet.\n");
+	exit (-1);
+}
+
+static void target_program_block64 (target_t *t, unsigned addr,
+	unsigned base, unsigned nwords, unsigned *data)
+{
+	if (t->adapter->program_block32) {
+		while (nwords > 0) {
+			unsigned n = nwords;
+			if (n > 16)
+				n = 16;
+			t->adapter->program_block64 (t->adapter,
+				n, base, addr, data,
+				t->flash_addr_odd, t->flash_addr_even,
+				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
+			data += n;
+			addr += n*4;
+			nwords -= n;
+		}
+		return;
+	}
+	/*TODO*/
+	fprintf (stderr, "target_program_block64() not implemented yet.\n");
+	exit (-1);
 }
 
 void target_program_block (target_t *t, unsigned addr,
@@ -781,65 +887,23 @@ void target_program_block (target_t *t, unsigned addr,
 	else if (addr >= 0x80000000)
 		addr -= 0x80000000;
 //printf ("target_program_block (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, t->flash_width, base);
+
 	switch (t->flash_width) {
 	case 8:
 		/* 8-разрядная шина. */
-		/* Unlock bypass. */
-		target_write_2bytes (t, t->flash_cmd_aa, base + t->flash_addr_odd,
-				   t->flash_cmd_55, base + t->flash_addr_even);
-		target_write_byte (t, t->flash_cmd_20, base + t->flash_addr_odd);
-		while (nwords-- > 0) {
-			unsigned word = *data++;
-			target_write_2bytes (t, t->flash_cmd_a0, base, word, addr++);
-			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 8, addr++);
-			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 16, addr++);
-			target_write_2bytes (t, t->flash_cmd_a0, base, word >> 24, addr++);
-		}
-		/* Reset unlock bypass. */
-		target_write_2bytes (t, t->flash_cmd_90, base, 0, base);
+		target_program_block8 (t, addr, base, nwords, data);
 		break;
 	case 32:
 		if (t->flash_delay) {
-			while (nwords > 0) {
-				jtag_program_block32_unprotect (128, base, addr, data,
-					t->flash_addr_odd, t->flash_addr_even,
-					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
-				jtag_program_block32_protect (128, base, addr, data,
-					t->flash_addr_odd, t->flash_addr_even,
-					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
-				if (nwords <= 128)
-					break;
-				data += 128;
-				addr += 128*4;
-				nwords -= 128;
-			}
+			target_program_block32_atmel (t,
+				addr, base, nwords, data);
 		} else {
-			while (nwords > 0) {
-				unsigned n = nwords;
-				if (n > 16)
-					n = 16;
-				jtag_program_block32 (n, base, addr, data,
-					t->flash_addr_odd, t->flash_addr_even,
-					t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
-				data += n;
-				addr += n*4;
-				nwords -= n;
-			}
+			target_program_block32 (t, addr, base, nwords, data);
 		}
 		break;
 	case 64:
 		/* 64-разрядная шина. */
-		while (nwords > 0) {
-			unsigned n = nwords;
-			if (n > 16)
-				n = 16;
-			jtag_program_block64 (n, base, addr, data,
-				t->flash_addr_odd, t->flash_addr_even,
-				t->flash_cmd_aa, t->flash_cmd_55, t->flash_cmd_a0);
-			data += n;
-			addr += n*4;
-			nwords -= n;
-		}
+		target_program_block64 (t, addr, base, nwords, data);
 		break;
 	}
 }
