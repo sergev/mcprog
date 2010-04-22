@@ -138,7 +138,9 @@ void target_write_next (target_t *t, unsigned data, unsigned phys_addr)
 		phys_addr -= 0xA0000000;
 	else if (phys_addr >= 0x80000000)
 		phys_addr -= 0x80000000;
-//fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+
+	if (debug)
+		fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
 	t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
 	t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
 	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
@@ -180,7 +182,7 @@ void target_read_start (target_t *t)
 	unsigned oscr;
 
 	/* Allow memory access */
-	oscr = t->adapter->oncd_read (t->adapter,OnCD_OSCR, 32);
+	oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_SlctMEM | OSCR_RO;
 	t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 }
@@ -207,7 +209,8 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 		exit (1);
 	}
 	data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
-//fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
+	if (debug)
+		fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
 	return data;
 }
 

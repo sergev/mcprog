@@ -1,6 +1,6 @@
 CC		= gcc
 CFLAGS		= -Wall -g -I/opt/local/include -O
-LIBS		= -L/opt/local/lib -lusb-1.0
+LIBS		= -L/opt/local/lib -lusb
 
 OBJS		= mcprog.o target.o conf.o
 OBJS		+= adapter-usb.o
@@ -13,7 +13,7 @@ mcprog:		$(OBJS)
 		$(CC) -o mcprog $(OBJS) $(LIBS)
 
 adapter-bitbang: adapter-bitbang.c
-		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c -L/opt/local/lib -lusb
+		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c $(LIBS)
 
 clean:
 		rm -f *~ *.o core mcprog mcprog.exe adapter-bitbang

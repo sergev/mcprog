@@ -90,6 +90,13 @@ typedef struct {
 #define	IRd_FLUSH_PIPE	0x40	/* for EnGO: instruction pipe changed */
 #define	IRd_STEP_1CLK	0x80	/* for step mode: run for 1 clock only */
 
+static char *oncd_regname[] = {
+	"OSCR",		"OMBC",		"OMLR0",	"OMLR1",
+	"OBCR",		"IRdec",	"OTC",		"PCdec",
+	"PCexec",	"PCmem",	"PCfetch",	"OMAR",
+	"OMDR",		"MEM",		"PCwb",		"EXIT",
+};
+
 /*
  * JTAG i/o.
  */
@@ -135,7 +142,7 @@ write_more:
 		}
 		exit (1);
 	}
-	if (debug)
+	if (debug > 1)
 		fprintf (stderr, "bitbang_io() got %02x %02x %02x %02x %02x %s\n",
 			reply[0], reply[1], reply[2], reply[3], reply[4],
 			(reply[3] & READ_TDO) ? "TDO" : "");
@@ -268,6 +275,8 @@ static unsigned bitbang_oncd_read (adapter_t *adapter, int reg, int reglen)
 	data[4] = 0;
 	tap_data (a, 8 + reglen, data, data);
 	value = data[1] | data[2] << 8 | data[3] << 16 | data[4] << 24;
+	if (debug)
+		fprintf (stderr, "OnCD read %08x from %s\n", value, oncd_regname [reg]);
 	return value;
 }
 
@@ -280,6 +289,8 @@ static void bitbang_oncd_write (adapter_t *adapter,
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned char data[5];
 
+	if (debug)
+		fprintf (stderr, "OnCD write %08x to %s\n", value, oncd_regname [reg]);
 	data[0] = reg;
 	if (reglen > 0) {
 		data[1] = value;
@@ -297,9 +308,9 @@ static void bitbang_oncd_write (adapter_t *adapter,
 static void bitbang_stop_cpu (adapter_t *adapter)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
-	int old_ir, i;
-	unsigned oscr;
+	unsigned old_ir, i, oscr;
 
+fprintf (stderr, "bitbang_stop_cpu() called\n");
 	/* Debug request. */
 	tap_instr (a, 4, TAP_DEBUG_REQUEST);
 
@@ -307,6 +318,7 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	i = 0;
 	for (;;) {
 		old_ir = tap_instr (a, 4, TAP_DEBUG_ENABLE);
+fprintf (stderr, "bitbang_stop_cpu() old_ir = %#x\n", old_ir);
 		if (old_ir & 0x4)
 			break;
 		mdelay (10);
@@ -319,6 +331,7 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	oscr = bitbang_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_TME;
 	bitbang_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+fprintf (stderr, "bitbang_stop_cpu() returned\n");
 }
 
 /*
@@ -385,7 +398,8 @@ failed:		usb_release_interface (a->usbdev, 0);
 
 	int baud = (divisor == 0) ? 3000000 :
 		(divisor == 1) ? 2000000 : 3000000 / divisor;
-	fprintf (stderr, "Speed %d samples/sec\n", baud);
+	if (debug)
+		fprintf (stderr, "Bitbang: speed %d samples/sec\n", baud);
 
 	/* Frequency divisor is 14-bit non-zero value. */
 	if (usb_control_msg (a->usbdev,
@@ -408,7 +422,8 @@ failed:		usb_release_interface (a->usbdev, 0);
 		fprintf (stderr, "unable to get latency timer\n");
 		goto failed;
 	}
-	fprintf (stderr, "Latency timer: %u usec\n", latency_timer);
+	if (debug)
+		fprintf (stderr, "Bitbang: latency timer: %u usec\n", latency_timer);
 
 	/* Reset the JTAG TAP controller. */
 	bitbang_io (a, 1, 1);

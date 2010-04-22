@@ -20,22 +20,17 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include <usb.h>
+
 #include "adapter.h"
 #include "oncd.h"
-
-#if defined (__CYGWIN32__) || defined (MINGW32)
-#   include "libusb-win32/usb.h"
-#   include "usb-win32.c"
-#else
-#   include <libusb-1.0/libusb.h>
-#endif
 
 typedef struct {
 	/* Общая часть. */
 	adapter_t adapter;
 
 	/* Доступ к устройству через libusb. */
-	struct libusb_device_handle *usbdev;
+	usb_dev_handle *usbdev;
 
 	/* Версия аппаратной прошивки адаптера. */
 	unsigned hw_version;
@@ -112,7 +107,7 @@ static void print_pkt (unsigned char *pkt, unsigned len)
 /*
  * Записать через USB массив данных.
  */
-static void bulk_write (struct libusb_device_handle *usbdev,
+static void bulk_write (usb_dev_handle *usbdev,
 	const unsigned char *wb, unsigned wlen)
 {
 	int transferred;
@@ -124,10 +119,9 @@ static void bulk_write (struct libusb_device_handle *usbdev,
 			fprintf (stderr, "-%02x", wb[i]);
 		fprintf (stderr, "\n");
 	}
-	transferred = 0;
-	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
-	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
-	    transferred != wlen) {
+	transferred = usb_bulk_write (usbdev, BULK_WRITE_ENDPOINT,
+		(char*) wb, wlen, 1000);
+	if (transferred != wlen) {
 		fprintf (stderr, "Bulk write failed: %d bytes to endpoint %#x.\n",
 			wlen, BULK_WRITE_ENDPOINT);
 		_exit (-1);
@@ -137,17 +131,16 @@ static void bulk_write (struct libusb_device_handle *usbdev,
 /*
  * Записать команду в Ctrl Pipe.
  */
-static void bulk_cmd (struct libusb_device_handle *usbdev,
+static void bulk_cmd (usb_dev_handle *usbdev,
 	unsigned char cmd)
 {
 	int transferred;
 
 	if (debug)
 		fprintf (stderr, "Bulk cmd: %02x\n", cmd);
-	transferred = 0;
-	if (libusb_bulk_transfer (usbdev, BULK_CONTROL_ENDPOINT,
-	    &cmd, 1, &transferred, 1000) != 0 ||
-	    transferred != 1) {
+	transferred = usb_bulk_write (usbdev, BULK_CONTROL_ENDPOINT,
+		(char*) &cmd, 1, 1000);
+	if (transferred != 1) {
 		fprintf (stderr, "Bulk cmd failed: command to endpoint %#x.\n",
 			BULK_CONTROL_ENDPOINT);
 		_exit (-1);
@@ -157,14 +150,14 @@ static void bulk_cmd (struct libusb_device_handle *usbdev,
 /*
  * Прочитать из USB массив данных.
  */
-static unsigned bulk_read (struct libusb_device_handle *usbdev,
+static unsigned bulk_read (usb_dev_handle *usbdev,
 	unsigned char *rb, unsigned rlen)
 {
 	int transferred;
 
-	transferred = 0;
-	if (libusb_bulk_transfer (usbdev, BULK_READ_ENDPOINT,
-	    rb, rlen, &transferred, 1000) != 0) {
+	transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
+		(char*) rb, rlen, 1000);
+	if (transferred != rlen) {
 		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
 		_exit (-1);
@@ -185,7 +178,7 @@ static unsigned bulk_read (struct libusb_device_handle *usbdev,
 /*
  * Записать и прочитать из USB массив данных.
  */
-static unsigned bulk_write_read (struct libusb_device_handle *usbdev,
+static unsigned bulk_write_read (usb_dev_handle *usbdev,
 	const unsigned char *wb, unsigned wlen,
 	unsigned char *rb, unsigned rlen)
 {
@@ -199,17 +192,16 @@ static unsigned bulk_write_read (struct libusb_device_handle *usbdev,
 		fprintf (stderr, " --> ");
 		fflush (stderr);
 	}
-	transferred = 0;
-	if (libusb_bulk_transfer (usbdev, BULK_WRITE_ENDPOINT,
-	    (unsigned char*) wb, wlen, &transferred, 1000) != 0 ||
-	    transferred != wlen) {
+	transferred = usb_bulk_write (usbdev, BULK_WRITE_ENDPOINT,
+		(char*) wb, wlen, 1000);
+	if (transferred != wlen) {
 		fprintf (stderr, "Bulk write(-read) failed: %d bytes to endpoint %#x.\n",
 			wlen, BULK_WRITE_ENDPOINT);
 		_exit (-1);
 	}
-	transferred = 0;
-	if (libusb_bulk_transfer (usbdev, BULK_READ_ENDPOINT,
-	    rb, rlen, &transferred, 1000) != 0) {
+	transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
+		(char*) rb, rlen, 1000);
+	if (transferred != rlen) {
 		fprintf (stderr, "Bulk (write-)read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
 		_exit (-1);
@@ -362,7 +354,7 @@ static void usb_write_block (adapter_t *adapter,
 	}
 }
 
-void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
+static void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 {
 	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char pkt [6*2*nwords + 6], *ptr = pkt;
@@ -386,7 +378,7 @@ void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 	}
 }
 
-void usb_read_block (adapter_t *adapter,
+static void usb_read_block (adapter_t *adapter,
 	unsigned nwords, unsigned addr, unsigned *data)
 {
 	usb_adapter_t *a = (usb_adapter_t*) adapter;
@@ -422,7 +414,7 @@ void usb_read_block (adapter_t *adapter,
 	}
 }
 
-void usb_program_block32 (adapter_t *adapter,
+static void usb_program_block32 (adapter_t *adapter,
 	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
@@ -458,7 +450,7 @@ void usb_program_block32 (adapter_t *adapter,
 	}
 }
 
-void usb_program_block32_unprotect (adapter_t *adapter,
+static void usb_program_block32_unprotect (adapter_t *adapter,
 	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
@@ -512,7 +504,7 @@ void usb_program_block32_unprotect (adapter_t *adapter,
 	mdelay (40);
 }
 
-void usb_program_block32_protect (adapter_t *adapter,
+static void usb_program_block32_protect (adapter_t *adapter,
 	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
@@ -560,7 +552,7 @@ void usb_program_block32_protect (adapter_t *adapter,
 	mdelay (40);
 }
 
-void usb_program_block64 (adapter_t *adapter,
+static void usb_program_block64 (adapter_t *adapter,
 	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
 	unsigned addr_odd, unsigned addr_even,
 	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
@@ -596,12 +588,12 @@ void usb_program_block64 (adapter_t *adapter,
 /*
  * Завершение работы с адаптером и освобождение памяти.
  */
-static void usb_close (adapter_t *adapter)
+static void usb_close_adapter (adapter_t *adapter)
 {
 	usb_adapter_t *a = (usb_adapter_t*) adapter;
 
-	libusb_release_interface (a->usbdev, 0);
-	libusb_close (a->usbdev);
+	usb_release_interface (a->usbdev, 0);
+	usb_close (a->usbdev);
 	free (a);
 }
 
@@ -622,28 +614,36 @@ adapter_t *adapter_open_usb (void)
 		IR_BYPASS
 	};
 	usb_adapter_t *a;
+	struct usb_bus *bus;
+	struct usb_device *dev;
 	unsigned char rb[32];
-	int cfg;
 
-	if (libusb_init (0) < 0) {
-		fprintf (stderr, "Failed to initialize libusb.\n");
-		return 0;
+	usb_init ();
+	usb_find_busses ();
+	usb_find_devices ();
+	for (bus = usb_get_busses(); bus; bus = bus->next) {
+		for (dev = bus->devices; dev; dev = dev->next) {
+			if (dev->descriptor.idVendor == 0x0547 &&
+			    dev->descriptor.idProduct == 0x1002)
+				goto found;
+		}
 	}
-
+/*	fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");*/
+	return 0;
+found:
 	a = calloc (1, sizeof (*a));
 	if (! a) {
 		fprintf (stderr, "Out of memory\n");
 		return 0;
 	}
-	a->usbdev = libusb_open_device_with_vid_pid (0, 0x0547, 0x1002);
+	a->usbdev = usb_open (dev);
 	if (! a->usbdev) {
-/*		fprintf (stderr, "USB-JTAG Multicore adapter not found.\n");*/
+		fprintf (stderr, "usb_open() failed.\n");
 		free (a);
 		return 0;
 	}
-	if (libusb_get_configuration (a->usbdev, &cfg) != 0 || cfg != 1)
-		libusb_set_configuration (a->usbdev, 1);
-	libusb_claim_interface (a->usbdev, 0);
+	usb_set_configuration (a->usbdev, 1);
+	usb_claim_interface (a->usbdev, 0);
 
 	bulk_cmd (a->usbdev, ADAPTER_PLL_12MHZ);
 /*	bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);*/
@@ -667,7 +667,7 @@ adapter_t *adapter_open_usb (void)
 
 	/* Обязательные функции. */
 	a->adapter.name = "Elvees USB";
-	a->adapter.close = usb_close;
+	a->adapter.close = usb_close_adapter;
 	a->adapter.get_idcode = usb_get_idcode;
 	a->adapter.stop_cpu = usb_stop_cpu;
 	a->adapter.oncd_read = usb_oncd_read;
