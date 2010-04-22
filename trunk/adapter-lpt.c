@@ -1,5 +1,5 @@
 /*
- * Интерфейс через адаптер LPT-JTAG к процессору Элвис Мультикор.
+ * Интерфейс к адаптеру LPT-JTAG фирмы Элвис.
  * Разработано в ИТМиВТ, 2006-2009.
  * Авторы: А.Ступаченко, С.Вакуленко.
  *
@@ -21,110 +21,13 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "multicore.h"
+#include "adapter.h"
+#include "oncd.h"
 
-#define NFLASH		16	/* Max flash regions. */
-
-struct _multicore_t {
-	char		*cpu_name;
-	unsigned 	idcode;
-	unsigned	flash_width;
-	unsigned	flash_bytes;
-	unsigned	flash_addr_odd;
-	unsigned	flash_addr_even;
-	unsigned	flash_cmd_aa;
-	unsigned	flash_cmd_55;
-	unsigned	flash_cmd_10;
-	unsigned	flash_cmd_80;
-	unsigned	flash_cmd_90;
-	unsigned	flash_cmd_a0;
-	unsigned	flash_cmd_f0;
-	unsigned	flash_devid_offset;
-	unsigned	flash_base [NFLASH];
-	unsigned	flash_last [NFLASH];
-};
-
-/*
- * Регистр конфигурации 3
- */
-static unsigned cscon3;
-
-/* Идентификатор производителя flash. */
-#define ID_ALLIANCE		0x00520052
-#define ID_AMD			0x00010001
-#define ID_SST			0x00BF00BF
-#define ID_MILANDR		0x01010101
-
-/* Идентификатор микросхемы flash. */
-#define ID_29LV800_B		0x225b225b
-#define ID_29LV800_T		0x22da22da
-#define ID_39VF800_A		0x27812781
-#define ID_39VF6401_B		0x236d236d
-#define ID_1636PP2Y		0xc8c8c8c8
-
-/* Команды flash. */
-#define FLASH_CMD16_AA		0x00AA00AA
-#define FLASH_CMD8_AA		0xAAAAAAAA
-#define FLASH_CMD16_55		0x00550055
-#define FLASH_CMD8_55		0x55555555
-#define FLASH_CMD16_10		0x00100010	/* Chip erase 2/2 */
-#define FLASH_CMD8_10		0x10101010
-#define FLASH_CMD16_80		0x00800080	/* Chip erase 1/2 */
-#define FLASH_CMD8_80		0x80808080
-#define FLASH_CMD16_90		0x00900090	/* Read ID */
-#define FLASH_CMD8_90		0x90909090
-#define FLASH_CMD16_A0		0x00A000A0	/* Program */
-#define FLASH_CMD8_A0		0xA0A0A0A0
-#define FLASH_CMD16_F0		0x00F000F0	/* Reset */
-#define FLASH_CMD8_F0		0xF0F0F0F0
-
-/* Идентификатор версии процессора. */
-#define MC12_ID			0x20777001
-#define MC12REV1_ID		0x30777001
-
-/* JTAG TAP Commands */
-#define	EXTEST		0x0
-#define	SAMPLE		0x1
-#define DB_REQUEST	0x4
-#define	DB_ENABLE	0x5
-#define	BYPASS		0xF
-
-/* OnCD Register Map */
-#define	OnCD_OSCR	0x0	/* Control & State Register */
-#define	OnCD_OMBC	0x1	/* BreakPoint Match Counter */
-#define	OnCD_OMLR0	0x2	/* Address Boundary Register 0 */
-#define	OnCD_OMLR1	0x3	/* Address Boundary Register 1 */
-#define	OnCD_OBCR	0x4	/* BreakPoint Control Register */
-#define	OnCD_IRdec	0x5	/* Last CPU Instruction, can be supplied. */
-#define	OnCD_OTC	0x6	/* Trace Counter */
-#define	OnCD_PCdec	0x7	/* Decoding Instruction(IRdec) Address */
-#define	OnCD_PCexec	0x8	/* Executing Instruction Address */
-#define	OnCD_PCmem	0x9	/* Memory Access Instruction Address */
-#define	OnCD_PCfetch	0xA	/* PC (Fetching Instruction Address) */
-#define	OnCD_OMAR	0xB	/* Memory Address Register */
-#define	OnCD_OMDR	0xC	/* Memory Data Register */
-#define	OnCD_MEM	0xD	/* Memory Access Register (EnMEM) */
-#define	OnCD_PCwb	0xE	/* Address of instruction at write back stage */
-#define	OnCD_MEMACK	0xE	/* Memory Operation Acknowlege (EnXX) */
-#define	OnCD_EXIT	0xF	/* Exit From Debug Mode (EnGO) */
-
-/* OSCR Register */
-#define	OSCR_SlctMEM	0x0001	/* Allow Memory Access */
-#define OSCR_RO		0x0002	/* 0: Write, 1: Read */
-#define OSCR_TME	0x0004	/* Trace Mode Enable */
-#define OSCR_IME	0x0008	/* Debug Interrupt Enable */
-#define OSCR_MPE	0x0010	/* Flash CPU Pipeline At Debug Exit */
-#define OSCR_RDYm	0x0020	/* RDY signal state */
-#define OSCR_MBO	0x0040	/* BreakPoint triggered */
-#define OSCR_TO		0x0080	/* Trace Counter triggered */
-#define OSCR_SWO	0x0100	/* SoftWare enter into Debug mode */
-#define OSCR_SO		0x0200	/* CPU Mode, 0: running, 1: Debug */
-#define OSCR_DBM	0x0400	/* Debug Mode On, mc12 and above */
-#define OSCR_NDS	0x0800	/* Do not stop in delay slot, mc12 and above */
-#define OSCR_VBO	0x1000	/* Exception catched, mc12 and above */
-#define OSCR_NFEXP	0x2000	/* Do not raise exception at pc fetch */
-#define OSCR_WP0	0x4000	/* WP0 triggered, only for mc12 and above */
-#define OSCR_WP1	0x8000	/* WP1 triggered, only for mc12 and above */
+typedef struct {
+	/* Общая часть. */
+	adapter_t adapter;
+} lpt_adapter_t;
 
 /*
  * LPT port definitions
@@ -189,8 +92,6 @@ static unsigned cscon3;
 #define MCIF_STATUS_WRDR	0x20	/* Writing DR */
 #define MCIF_STATUS_RTI		0x40	/* Run-Test-Idle */
 #define MCIF_STATUS_PAUSEDR	0x80	/* State machine in Pause-DR state */
-
-extern int debug;
 
 /*
  * Процедуры обращения к портам ввода-вывода.
@@ -346,17 +247,6 @@ static void get_winnt_lpt_access()
 		exit (1);
 	}
 	CloseHandle (h);
-}
-
-void jtag_usleep (unsigned usec)
-{
-	Sleep (usec / 1000);
-}
-#else
-/* Unix. */
-void jtag_usleep (unsigned usec)
-{
-	usleep (usec);
 }
 #endif
 
@@ -538,49 +428,136 @@ static void oncd_io (char *data, int len)
 /*
  * Чтение регистра OnCD.
  */
-static unsigned oncd_read (int reg, int reglen)
+static unsigned lpt_oncd_read (adapter_t *adapter, int reg, int nbits)
 {
 	unsigned data[2];
 
 	data[0] = (reg | 0x40) << 24;
 	data[1] = 0;
-	oncd_io ((char*)data + 3, 8 + reglen);
+	oncd_io ((char*)data + 3, 8 + nbits);
 	return data[1];
 }
 
 /*
  * Запись регистра OnCD.
  */
-static void oncd_write (unsigned int value, int reg, int reglen)
+static void lpt_oncd_write (adapter_t *adapter,
+	unsigned val, int reg, int nbits)
 {
 	unsigned int data[2];
 
 	data[0] = reg << 24;
-	data[1] = value;
-	oncd_io ((char*)data + 3, 8 + reglen);
+	data[1] = val;
+	oncd_io ((char*)data + 3, 8 + nbits);
 }
 
 /*
- * Выполнение одной инструкции MIPS32.
+ * Перевод кристалла в режим отладки путём манипуляций
+ * регистрами данных JTAG.
  */
-static void exec (unsigned instr)
+static void lpt_stop_cpu (adapter_t *adapter)
 {
-	/* Restore PCfetch to right address or
-	 * we can go in exception. */
-	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
+	int old_ir, i;
+	unsigned oscr;
+#if 1
+	/* Сброс OnCD. */
+	reset (1, 1);
+	mdelay (50);
+	reset (1, 0);
 
-	/* Supply instruction to pipeline and do step */
-	oncd_write (instr, OnCD_IRdec, 32);
-	oncd_write (0, OnCD_EXIT | 0xc0, 0);
+	/* Сброс процессора. */
+	reset (0, 1);
+	mdelay (50);
+#endif
+	/* Debug request. */
+	set_ir (TAP_DEBUG_REQUEST);
+
+	/* Wait while processor enters debug mode. */
+	i = 0;
+	for (;;) {
+		old_ir = set_ir (TAP_DEBUG_ENABLE);
+		if (old_ir & 0x4)
+			break;
+		mdelay (10);
+		if (++i >= 50) {
+			fprintf (stderr, "Timeout while entering debug mode\n");
+			exit (1);
+		}
+	}
+	lpt_oncd_write (adapter, 0, OnCD_OBCR, 12);
+	oscr = lpt_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_TME;
+	lpt_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+	reset (0, 0);
 }
 
 /*
- * Приведение порта LPT в исходное состояние.
+ * Чтение регистра IDCODE.
  */
-void jtag_start (void)
+static unsigned lpt_get_idcode (adapter_t *adapter)
 {
+	unsigned idcode = 0;
+
+	putcmd (MCIF_FINISH);		/* Enter TLR state */
+	putcmd (MCIF_START);		/* Change state TLR->RTI */
+	set_dr ((char*) &idcode, 32);
+	return idcode;
+}
+
+/*
+ * Close the device.
+ */
+static void lpt_close (adapter_t *adapter)
+{
+	lpt_adapter_t *a = (lpt_adapter_t*) adapter;
+
+	free (a);
+}
+
+/*
+ * Инициализация адаптера LPT-JTAG.
+ * Возвращаем указатель на структуру данных, выделяемую динамически.
+ * Если адаптер не обнаружен, возвращаем 0.
+ */
+adapter_t *adapter_open_lpt (void)
+{
+	lpt_adapter_t *a;
 	unsigned char ctrl, status;
 
+	/*
+	 * Установка доступа к аппаратным портам ввода-вывода.
+	 */
+#if defined (__CYGWIN32__) || defined (MINGW32)
+	if (is_winnt ())
+		get_winnt_lpt_access ();
+#else
+	/* Unfortunately we can permit access only to all ports, because
+	 * we need access to ECP_ECR port and it beyond of 1024 bits. */
+#if defined (__linux__)
+	if (iopl(3) == -1) {
+		if (errno == EPERM)
+			fprintf (stderr, "LPT adapter: superuser privileges needed.\n");
+		else
+			perror ("LPT adapter: iopl failed");
+		return 0;
+	}
+#endif
+#if defined (__OpenBSD__) || defined (__NetBSD__)
+	if (i386_iopl (3) != 0) {
+		perror ("LPT adapter: i386_iopl failed");
+		return 0;
+	}
+#endif
+	/* Drop privilegies.
+	 * Yes, there are should be two setuid() calls.
+	 * If you don't understand why, then you don't
+	 * understand unix security. */
+	setuid (getuid());
+	setuid (getuid());
+#endif
+	/*
+	 * Приведение порта LPT в исходное состояние.
+	 */
 	/* LPT port probably in ECP mode, try to select EPP mode */
 	outb (ECR_MODE_EPP, ECP_ECR);
 	ctrl = inb (SPP_CONTROL);
@@ -606,7 +583,7 @@ void jtag_start (void)
 	/* Set SPP_CONTROL_RESET low for a while */
 	ctrl &= ~SPP_CONTROL_nRESET;
 	outb (ctrl, SPP_CONTROL);
-	jtag_usleep (10000); /* we should hold nInit at least 50 usec. */
+	mdelay (10); /* we should hold nInit at least 50 usec. */
 	ctrl |= SPP_CONTROL_nRESET;
 	outb (ctrl, SPP_CONTROL);
 
@@ -617,624 +594,33 @@ void jtag_start (void)
 	}
 	if (! (status & SPP_STATUS_nBUSY)) {
 		/* SPP BUSY high after EPP port reset */
-		fprintf (stderr, "\nNo device detected.\nCheck power!\n");
-		exit (1);
+/*		fprintf (stderr, "\nNo Elvees device detected on LPT adapter.\nCheck power!\n");*/
+		return 0;
 	}
 	putcmd (MCIF_START);
-}
 
-/*
- * Перевод кристалла в режим отладки путём манипуляций
- * регистрами данных JTAG.
- */
-void jtag_reset ()
-{
-	int old_ir, i;
-	unsigned oscr;
-
-	/* Сброс OnCD. */
-	reset (1, 1);
-	jtag_usleep (50000);
-	reset (1, 0);
-
-	/* Сброс процессора. */
-	reset (0, 1);
-	jtag_usleep (50000);
-
-	/* Debug request. */
-	set_ir (DB_REQUEST);
-
-	/* Wait while processor enters debug mode. */
-	i = 0;
-	for (;;) {
-		old_ir = set_ir (DB_ENABLE);
-		if (old_ir & 0x4)
-			break;
-		jtag_usleep (10000);
-		if (++i >= 50) {
-			fprintf (stderr, "Timeout while entering debug mode\n");
-			exit (1);
-		}
-	}
-	oncd_write (0, OnCD_OBCR, 12);
-	oscr = oncd_read (OnCD_OSCR, 32);
-	oscr |= OSCR_TME;
-	oncd_write (oscr, OnCD_OSCR, 32);
-	reset (0, 0);
-}
-
-/*
- * Чтение регистра IDCODE.
- */
-unsigned jtag_get_idcode (void)
-{
-	unsigned idcode = 0;
-
-	putcmd (MCIF_FINISH);		/* Enter TLR state */
-	putcmd (MCIF_START);		/* Change state TLR->RTI */
-	set_dr ((char*) &idcode, 32);
-	return idcode;
-}
-
-/*
- * Запись слова в память.
- */
-void jtag_write_next (unsigned data, unsigned phys_addr)
-{
-	unsigned wait, oscr;
-
-	if (phys_addr >= 0xA0000000)
-		phys_addr -= 0xA0000000;
-	else if (phys_addr >= 0x80000000)
-		phys_addr -= 0x80000000;
-//fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
-	oncd_write (phys_addr, OnCD_OMAR, 32);
-	oncd_write (data, OnCD_OMDR, 32);
-	oncd_write (0, OnCD_MEM, 0);
-
-	for (wait = 100000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR, 32);
-		if (oscr & OSCR_RDYm)
-			break;
-		jtag_usleep (10);
-	}
-	if (wait == 0) {
-		fprintf (stderr, "Timeout writing memory, aborted.\n");
-		exit (1);
-	}
-}
-
-void jtag_write_word (unsigned data, unsigned phys_addr)
-{
-	unsigned oscr;
-
-	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR, 32);
-	oscr |= OSCR_SlctMEM;
-	oscr &= ~OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR, 32);
-
-	jtag_write_next (data, phys_addr);
-}
-
-void jtag_write_byte (unsigned data, unsigned phys_addr)
-{
-	jtag_write_word (cscon3 | MC_CSCON3_ADDR (phys_addr), MC_CSCON3);
-	jtag_write_word (data, phys_addr);
-}
-
-/*
- * Чтение слова из памяти.
- */
-void jtag_read_start ()
-{
-	unsigned oscr;
-
-	/* Allow memory access */
-	oscr = oncd_read (OnCD_OSCR, 32);
-	oscr |= OSCR_SlctMEM | OSCR_RO;
-	oncd_write (oscr, OnCD_OSCR, 32);
-}
-
-unsigned jtag_read_next (unsigned phys_addr)
-{
-	unsigned wait, oscr, data;
-
-	if (phys_addr >= 0xA0000000)
-		phys_addr -= 0xA0000000;
-	else if (phys_addr >= 0x80000000)
-		phys_addr -= 0x80000000;
-	oncd_write (phys_addr, OnCD_OMAR, 32);
-	oncd_write (0, OnCD_MEM, 0);
-	for (wait = 100000; wait != 0; wait--) {
-		oscr = oncd_read (OnCD_OSCR, 32);
-		if (oscr & OSCR_RDYm)
-			break;
-		jtag_usleep (10);
-	}
-	if (wait == 0) {
-		fprintf (stderr, "Timeout reading memory, aborted.\n");
-		exit (1);
-	}
-	data = oncd_read (OnCD_OMDR, 32);
-	return data;
-}
-
-unsigned jtag_read_word (unsigned phys_addr)
-{
-	jtag_read_start ();
-	return jtag_read_next (phys_addr);
-}
-
-/*
- * Установка доступа к аппаратным портам ввода-вывода.
- */
-void multicore_init ()
-{
-	/* Set IDT to allow access to EPP port */
-#if defined (__CYGWIN32__) || defined (MINGW32)
-	if (is_winnt ())
-		get_winnt_lpt_access ();
-#else
-	/* Unfortunately we can permit access only to all ports, because
-	 * we need access to ECP_ECR port and it beyond of 1024 bits. */
-#if defined (__linux__)
-	if (iopl(3) == -1) {
-		if (errno == EPERM)
-			fprintf (stderr, "This program must be run with superuser privileges.\n");
-		else
-			perror ("iopl");
-		exit (1);
-	}
-#endif
-#if defined (__OpenBSD__) || defined (__NetBSD__)
-	if (i386_iopl (3) != 0) {
-		perror ("i386_iopl");
-		exit (1);
-	}
-#endif
-	/* Drop privilegies.
-	 * Yes, there are should be two setuid() calls.
-	 * If you don't understand why, then you don't
-	 * understand unix security. */
-	setuid (getuid());
-	setuid (getuid());
-#endif
-}
-
-/*
- * Open the device.
- */
-multicore_t *multicore_open ()
-{
-	multicore_t *mc;
-
-	mc = calloc (1, sizeof (multicore_t));
-	if (! mc) {
+	a = calloc (1, sizeof (*a));
+	if (! a) {
 		fprintf (stderr, "Out of memory\n");
-		exit (-1);
-	}
-	mc->cpu_name = "Unknown";
-
-	jtag_start ();
-
-	/* For ARM7TDMI must be 0x1f0f0f0f. */
-	mc->idcode = jtag_get_idcode();
-	if (debug)
-		fprintf (stderr, "idcode %08X\n", mc->idcode);
-	switch (mc->idcode) {
-	default:
-		/* Device not detected. */
-		if (mc->idcode == 0xffffffff || mc->idcode == 0)
-			fprintf (stderr, "No response from device -- check power is on!\n");
-		else
-			fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
-				mc->idcode);
-		exit (1);
-	case MC12_ID:
-		mc->cpu_name = "MC12";
-		break;
-	case MC12REV1_ID:
-		mc->cpu_name = "MC12r1";
-		break;
-	}
-	jtag_reset ();
-	return mc;
-}
-
-/*
- * Close the device.
- */
-void multicore_close (multicore_t *mc)
-{
-	unsigned oscr;
-        int i;
-
-	/* Clear processor state */
-	for (i=1; i<32; i++) {
-		/* add $i, $0, $0 */
-		exec (0x20 | (i << 11));
-	}
-	/* Clear pipeline */
-	for (i=0; i<3; i++) {
-		/* add $0, $0, $0 */
-		exec (0x20);
-	}
-
-	/* Setup IRdec and PCfetch */
-	oncd_write (0xBFC00000, OnCD_PCfetch, 32);
-	oncd_write (0x20, OnCD_IRdec, 32);
-
-	/* Flush CPU pipeline at exit */
-	oscr = oncd_read (OnCD_OSCR, 32);
-	oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
-	oscr |= OSCR_MPE;
-	oncd_write (oscr, OnCD_OSCR, 32);
-
-	/* Exit */
-	oncd_write (0, OnCD_EXIT | 0x60, 0);
-}
-
-/*
- * Add a flash region.
- */
-void multicore_flash_configure (multicore_t *mc, unsigned first, unsigned last)
-{
-	int i;
-
-	for (i=0; i<NFLASH; ++i) {
-		if (! mc->flash_last [i]) {
-			mc->flash_base [i] = first;
-			mc->flash_last [i] = last;
-			return;
-		}
-	}
-	fprintf (stderr, "multicore_flash_configure: too many flash regions.\n");
-	exit (1);
-}
-
-/*
- * Iterate trough all flash regions.
- */
-unsigned multicore_flash_next (multicore_t *mc, unsigned prev, unsigned *last)
-{
-	int i;
-
-	if (prev == ~0 && mc->flash_base [0]) {
-		*last = mc->flash_last [0];
-		return mc->flash_base [0];
-	}
-	for (i=1; i<NFLASH && mc->flash_last[i]; ++i) {
-		if (prev >= mc->flash_base [i-1] &&
-		    prev <= mc->flash_last [i-1]) {
-			*last = mc->flash_last [i];
-			return mc->flash_base [i];
-		}
-	}
-	return ~0;
-}
-
-char *multicore_cpu_name (multicore_t *mc)
-{
-	return mc->cpu_name;
-}
-
-unsigned multicore_idcode (multicore_t *mc)
-{
-	return mc->idcode;
-}
-
-/*
- * Вычисление базового адреса микросхемы flash-памяти.
- */
-static unsigned compute_base (multicore_t *mc, unsigned addr)
-{
-	int i;
-
-	if (addr >= 0xA0000000)
-		addr -= 0xA0000000;
-	else if (addr >= 0x80000000)
-		addr -= 0x80000000;
-
-	for (i=0; i<NFLASH && mc->flash_last[i]; ++i) {
-		if (addr >= mc->flash_base [i] &&
-		    addr <= mc->flash_last [i])
-			return mc->flash_base [i];
-	}
-	fprintf (stderr, "multicore: no flash region for address 0x%08X\n", addr);
-	exit (1);
-	return 0;
-}
-
-int multicore_flash_detect (multicore_t *mc, unsigned addr,
-	unsigned *mf, unsigned *dev, char *mfname, char *devname,
-	unsigned *bytes, unsigned *width)
-{
-	int count;
-	unsigned base;
-
-	base = compute_base (mc, addr);
-	for (count=0; count<16; ++count) {
-		/* Try both 32 and 64 bus width.*/
-		switch (count & 3) {
-		case 0:
-			/* Two 16-bit flash chips. */
-			mc->flash_width = 32;
-			mc->flash_addr_odd = 0x5555 << 2;
-			mc->flash_addr_even = 0x2AAA << 2;
-			mc->flash_cmd_aa = FLASH_CMD16_AA;
-			mc->flash_cmd_55 = FLASH_CMD16_55;
-			mc->flash_cmd_10 = FLASH_CMD16_10;
-			mc->flash_cmd_80 = FLASH_CMD16_80;
-			mc->flash_cmd_90 = FLASH_CMD16_90;
-			mc->flash_cmd_a0 = FLASH_CMD16_A0;
-			mc->flash_cmd_f0 = FLASH_CMD16_F0;
-			mc->flash_devid_offset = 4;
-			break;
-		case 1:
-			/* Four 16-bit flash chips. */
-			mc->flash_width = 64;
-			mc->flash_addr_odd = 0x5555 << 3;
-			mc->flash_addr_even = 0x2AAA << 3;
-			mc->flash_cmd_aa = FLASH_CMD16_AA;
-			mc->flash_cmd_55 = FLASH_CMD16_55;
-			mc->flash_cmd_10 = FLASH_CMD16_10;
-			mc->flash_cmd_80 = FLASH_CMD16_80;
-			mc->flash_cmd_90 = FLASH_CMD16_90;
-			mc->flash_cmd_a0 = FLASH_CMD16_A0;
-			mc->flash_cmd_f0 = FLASH_CMD16_F0;
-			mc->flash_devid_offset = 8;
-			break;
-		case 2:
-			/* Four 8-bit flash chips. */
-			mc->flash_width = 32;
-			mc->flash_addr_odd = 0x555 << 2;
-			mc->flash_addr_even = 0x2AA << 2;
-			mc->flash_cmd_aa = FLASH_CMD8_AA;
-			mc->flash_cmd_55 = FLASH_CMD8_55;
-			mc->flash_cmd_10 = FLASH_CMD8_10;
-			mc->flash_cmd_80 = FLASH_CMD8_80;
-			mc->flash_cmd_90 = FLASH_CMD8_90;
-			mc->flash_cmd_a0 = FLASH_CMD8_A0;
-			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 4;
-			break;
-		case 3:
-			/* One 8-bit flash chip. */
-			mc->flash_width = 8;
-			mc->flash_addr_odd = 0x555;
-			mc->flash_addr_even = 0x2AA;
-			mc->flash_cmd_aa = FLASH_CMD8_AA;
-			mc->flash_cmd_55 = FLASH_CMD8_55;
-			mc->flash_cmd_10 = FLASH_CMD8_10;
-			mc->flash_cmd_80 = FLASH_CMD8_80;
-			mc->flash_cmd_90 = FLASH_CMD8_90;
-			mc->flash_cmd_a0 = FLASH_CMD8_A0;
-			mc->flash_cmd_f0 = FLASH_CMD8_F0;
-			mc->flash_devid_offset = 0;
-			break;
-		}
-		/* Read device code. */
-		if (mc->flash_width == 8) {
-			/* Byte-wide data bus. */
-			cscon3 = jtag_read_word (MC_CSCON3) & ~MC_CSCON3_ADDR (3);
-			jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-			jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-			jtag_write_byte (mc->flash_cmd_90, base + mc->flash_addr_odd);
-			*mf = jtag_read_word (base);
-			*dev = (unsigned char) (*mf >> 8);
-			*mf = (unsigned char) *mf;
-
-			/* Stop read ID mode. */
-			jtag_write_byte (mc->flash_cmd_f0, base);
-		} else {
-			/* Word-wide data bus. */
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-			jtag_write_word (mc->flash_cmd_90, base + mc->flash_addr_odd);
-			*dev = jtag_read_word (base + mc->flash_devid_offset);
-			*mf = jtag_read_word (base);
-
-			/* Stop read ID mode. */
-			jtag_write_word (mc->flash_cmd_f0, base);
-		}
-
-		if (debug > 1)
-			fprintf (stderr, "flash id %08X\n", *dev);
-		switch (*dev) {
-		case ID_29LV800_B:
-			strcpy (devname, "29LV800B");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_29LV800_T:
-			strcpy (devname, "29LV800T");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_39VF800_A:
-			strcpy (devname, "39VF800A");
-			mc->flash_bytes = 2*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_39VF6401_B:
-			strcpy (devname, "39VF6401B");
-			mc->flash_bytes = 16*1024*1024 * mc->flash_width / 32;
-			goto success;
-		case ID_1636PP2Y:
-			strcpy (devname, "1636PP2Y");
-			mc->flash_bytes = 4*2*1024*1024;
-			goto success;
-		case (unsigned char) ID_1636PP2Y:
-			if (mc->flash_width != 8)
-				break;
-			strcpy (devname, "1636PP2Y");
-			mc->flash_bytes = 2*1024*1024;
-			goto success;
-		}
-	}
-	/* printf ("Unknown flash id = %08X\n", *dev); */
-	return 0;
-
-success:
-	/* Read MFR code. */
-	switch (*mf) {
-	case ID_ALLIANCE:
-		strcpy (mfname, "Alliance");
-		break;
-	case ID_AMD:
-		strcpy (mfname, "AMD");
-		break;
-	case ID_SST:
-		strcpy (mfname, "SST");
-		break;
-	case ID_MILANDR:
-		strcpy (mfname, "Milandr");
-		break;
-	case (unsigned char) ID_MILANDR:
-		if (mc->flash_width != 8)
-			goto unknown_mfr;
-		strcpy (mfname, "Milandr");
-		break;
-	default:
-unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
-		break;
-	}
-
-	*bytes = mc->flash_bytes;
-	*width = mc->flash_width;
-	return 1;
-}
-
-int multicore_erase (multicore_t *mc, unsigned addr)
-{
-	unsigned word, base;
-
-	/* Chip erase. */
-	base = compute_base (mc, addr);
-	printf ("Erase: %08X", base);
-	if (mc->flash_width == 8) {
-		/* 8-разрядная шина. */
-		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (mc->flash_cmd_80, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (mc->flash_cmd_10, base + mc->flash_addr_odd);
-	} else {
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd);
-		if (mc->flash_width == 64) {
-			/* Старшая половина 64-разрядной шины. */
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-			jtag_write_word (mc->flash_cmd_80, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd + 4);
-			jtag_write_word (mc->flash_cmd_55, base + mc->flash_addr_even + 4);
-			jtag_write_word (mc->flash_cmd_10, base + mc->flash_addr_odd + 4);
-		}
-	}
-	for (;;) {
-		fflush (stdout);
-		jtag_usleep (250000);
-		word = jtag_read_word (base);
-		if (word == 0xffffffff)
-			break;
-		printf (".");
-	}
-	jtag_usleep (250000);
-	printf (" done\n");
-	return 1;
-}
-
-void multicore_flash_write (multicore_t *mc, unsigned addr, unsigned word)
-{
-	unsigned base;
-
-	base = compute_base (mc, addr);
-	if (mc->flash_width == 8) {
-		/* 8-разрядная шина. */
-		/* Unlock bypass. */
-		jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_byte (0x20, base + mc->flash_addr_odd);
-
-		/* Program. */
-		jtag_write_byte (mc->flash_cmd_a0, base);
-		jtag_write_byte (word, addr);
-		jtag_write_byte (mc->flash_cmd_a0, base);
-		jtag_write_byte (word >> 8, addr + 1);
-		jtag_write_byte (mc->flash_cmd_a0, base);
-		jtag_write_byte (word >> 16, addr + 2);
-		jtag_write_byte (mc->flash_cmd_a0, base);
-		jtag_write_byte (word >> 24, addr + 3);
-
-		/* Reset unlock bypass. */
-		jtag_write_byte (mc->flash_cmd_90, base);
-		jtag_write_byte (0x00, base);
-	} else {
-		if (mc->flash_width == 64 && (addr & 4)) {
-			/* Старшая половина 64-разрядной шины. */
-			base += 4;
-		}
-		jtag_write_word (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-		jtag_write_next (mc->flash_cmd_55, base + mc->flash_addr_even);
-		jtag_write_next (mc->flash_cmd_a0, base + mc->flash_addr_odd);
-		jtag_write_next (word, addr);
-	}
-}
-
-int multicore_flash_rewrite (multicore_t *mc, unsigned addr, unsigned word)
-{
-	unsigned bad, base;
-	unsigned char byte;
-
-	/* Повторная запись реализована только для 8-битной flash-памяти. */
-	if (mc->flash_width != 8)
 		return 0;
-
-	/* Повтор записи возможен, только если не прописались нули. */
-	jtag_read_start ();
-	bad = jtag_read_next (addr);
-	if ((bad & word) != word)
-		return 0;
-
-	/* Вычисляем нужный байт. */
-	for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
-		addr++;
-		word >>= 8;
 	}
-	byte = word;
-/*fprintf (stderr, "write byte %02x to %08x\n", byte, addr);*/
 
-	base = compute_base (mc, addr);
-	jtag_write_byte (mc->flash_cmd_aa, base + mc->flash_addr_odd);
-	jtag_write_byte (mc->flash_cmd_55, base + mc->flash_addr_even);
-	jtag_write_byte (mc->flash_cmd_a0, base + mc->flash_addr_odd);
-	jtag_write_byte (byte, addr);
-	jtag_usleep (50000);
-	return 1;
-}
-
-void multicore_read_start (multicore_t *mc)
-{
-	jtag_read_start ();
-}
-
-unsigned multicore_read_next (multicore_t *mc, unsigned addr)
-{
-	return jtag_read_next (addr);
-}
-
-void multicore_write_word (multicore_t *mc, unsigned addr, unsigned word)
-{
-	if (debug)
-		fprintf (stderr, "write word %08x to %08x\n", word, addr);
-	jtag_write_word (word, addr);
-}
-
-void multicore_write_next (multicore_t *mc, unsigned addr, unsigned word)
-{
-	jtag_write_next (word, addr);
+	/* Обязательные функции. */
+	a->adapter.name = "Elvees LPT";
+	a->adapter.close = lpt_close;
+	a->adapter.get_idcode = lpt_get_idcode;
+	a->adapter.stop_cpu = lpt_stop_cpu;
+	a->adapter.oncd_read = lpt_oncd_read;
+	a->adapter.oncd_write = lpt_oncd_write;
+#if 0
+	/* Расширенные возможности. */
+	a->adapter.read_block = lpt_read_block;
+	a->adapter.write_block = lpt_write_block;
+	a->adapter.write_nwords = lpt_write_nwords;
+	a->adapter.program_block32 = lpt_program_block32;
+	a->adapter.program_block32_unprotect = lpt_program_block32_unprotect;
+	a->adapter.program_block32_protect = lpt_program_block32_protect;
+	a->adapter.program_block64 = lpt_program_block64;
+#endif
+	return &a->adapter;
 }

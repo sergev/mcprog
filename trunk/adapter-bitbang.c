@@ -21,6 +21,17 @@
 
 #include <usb.h>
 
+#include "adapter.h"
+#include "oncd.h"
+
+typedef struct {
+	/* Общая часть. */
+	adapter_t adapter;
+
+	/* Доступ к устройству через libusb. */
+	usb_dev_handle *usbdev;
+} bitbang_adapter_t;
+
 /*
  * We use a layout of original usbjtag adapter, designed by Hubert Hoegl:
  * http://www.hs-augsburg.de/~hhoegl/proj/usbjtag/usbjtag.html
@@ -51,15 +62,6 @@
 #define BITBANG_PID		0x6001
 
 /*
- * TAP instructions for Elvees JTAG.
- */
-#define TAP_IDCODE		0x03	/* Select the ID register */
-//#define TAP_IDCODE		0x0E	/* ARM7 */
-#define TAP_DEBUG_REQUEST	0x04	/* Stop processor */
-#define TAP_DEBUG_ENABLE	0x05	/* Put processor in debug mode */
-#define TAP_BYPASS		0x0F	/* Select the BYPASS register */
-
-/*
  * USB endpoints.
  */
 #define IN_EP			0x02
@@ -82,10 +84,6 @@
 #define SIO_WRITE_EEPROM	0x91
 #define SIO_ERASE_EEPROM	0x92
 
-static usb_dev_handle *adapter;
-
-int debug;
-
 /* Биты регистра IRd */
 #define	IRd_RUN		0x20	/* 0 - step mode, 1 - run continuosly */
 #define	IRd_READ	0x40	/* 0 - write, 1 - read registers */
@@ -95,7 +93,7 @@ int debug;
 /*
  * JTAG i/o.
  */
-int bitbang_io (int tms, int tdi)
+static int bitbang_io (bitbang_adapter_t *a, int tms, int tdi)
 {
 	unsigned char data [3], reply [5];
 	int bytes_written, bytes_read, n;
@@ -111,7 +109,7 @@ int bitbang_io (int tms, int tdi)
 	/* Write data. */
 	bytes_written = 0;
 write_more:
-	n = usb_bulk_write (adapter, IN_EP, (char*) data + bytes_written,
+	n = usb_bulk_write (a->usbdev, IN_EP, (char*) data + bytes_written,
 		sizeof(data) - bytes_written, 1000);
         if (n < 0) {
 		fprintf (stderr, "bitbang_io(): usb bulk write failed\n");
@@ -124,7 +122,7 @@ write_more:
 		goto write_more;
 
 	/* Get reply. */
-	bytes_read = usb_bulk_read (adapter, OUT_EP, (char*) reply,
+	bytes_read = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
 		sizeof(reply), 2000);
 	if (bytes_read != sizeof(reply)) {
 		fprintf (stderr, "bitbang_io(): usb bulk read failed\n");
@@ -144,110 +142,27 @@ write_more:
 	return (reply[3] & READ_TDO) != 0;
 }
 
-void bitbang_close (void)
+static void bitbang_close (adapter_t *adapter)
 {
-	/* Setup default value of signals. */
-	bitbang_io (1, 1);
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 
-        if (usb_release_interface (adapter, 0) != 0) {
+	/* Setup default value of signals. */
+	bitbang_io (a, 1, 1);
+
+        if (usb_release_interface (a->usbdev, 0) != 0) {
 		fprintf (stderr, "bitbang_close() usb release interface failed\n");
 	}
-	usb_close (adapter);
-}
-
-/*
- * Bitbang adapter initialization
- */
-void bitbang_init (void)
-{
-	struct usb_bus *bus;
-	struct usb_device *dev;
-
-	usb_init();
-	usb_find_busses();
-	usb_find_devices();
-	for (bus = usb_get_busses(); bus; bus = bus->next) {
-		for (dev = bus->devices; dev; dev = dev->next) {
-			if (dev->descriptor.idVendor == BITBANG_VID &&
-			    dev->descriptor.idProduct == BITBANG_PID)
-				goto found;
-		}
-	}
-	fprintf (stderr, "USB adapter not found: vid=%04x, pid=%04x\n",
-		BITBANG_VID, BITBANG_PID);
-	exit (1);
-found:
-	adapter = usb_open (dev);
-	if (! adapter) {
-		fprintf (stderr, "usb_open() failed\n");
-		exit (1);
-	}
-	usb_claim_interface (adapter, 0);
-
-	/* Reset the ftdi device. */
-	if (usb_control_msg (adapter,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
-		fprintf (stderr, "FTDI reset failed\n");
-		exit (1);
-	}
-
-	/* Sync bit bang mode. */
-	if (usb_control_msg (adapter,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_BITMODE, TCK | TDI | TMS | NTRST | NSYSRST | 0x400,
-	    0, 0, 0, 1000) != 0) {
-		fprintf (stderr, "Can't set sync bitbang mode\n");
-		exit (1);
-	}
-
-	/* Ровно 500 нсек между выдачами. */
-	unsigned divisor = 0;
-	unsigned char latency_timer = 1;
-
-	int baud = (divisor == 0) ? 3000000 :
-		(divisor == 1) ? 2000000 : 3000000 / divisor;
-	fprintf (stderr, "Speed %d samples/sec\n", baud);
-
-	/* Frequency divisor is 14-bit non-zero value. */
-	if (usb_control_msg (adapter,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_BAUD_RATE, divisor,
-	    0, 0, 0, 1000) != 0) {
-		fprintf (stderr, "Can't set baud rate\n");
-		exit (1);
-	}
-
-	if (usb_control_msg (adapter,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
-		fprintf (stderr, "unable to set latency timer\n");
-		exit (1);
-	}
-	if (usb_control_msg (adapter,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_IN,
-	    SIO_GET_LATENCY_TIMER, 0, 0, (char*) &latency_timer, 1, 1000) != 1) {
-		fprintf (stderr, "unable to get latency timer\n");
-		exit (1);
-	}
-	fprintf (stderr, "Latency timer: %u usec\n", latency_timer);
-
-	/* Reset the JTAG TAP controller. */
-	bitbang_io (1, 1);
-	bitbang_io (1, 1);
-	bitbang_io (1, 1);
-	bitbang_io (1, 1);	/* 5 cycles with TMS=1 */
-	bitbang_io (1, 1);
-	bitbang_io (0, 1);	/* TMS=0 to enter run-test/idle */
+	usb_close (a->usbdev);
+	free (a);
 }
 
 /*
  * Step to next state in TAP machine.
  * Advances to next TAP state depending on TMS value.
  */
-static inline void tap_step (int tms)
+static inline void tap_step (bitbang_adapter_t *a, int tms)
 {
-	bitbang_io (tms, 1);
+	bitbang_io (a, tms, 1);
 }
 
 /*
@@ -256,21 +171,21 @@ static inline void tap_step (int tms)
  * On exit, stays at Update-IR.
  * Returns nonzero, if a processor is in debug mode.
  */
-int tap_instr (int nbits, unsigned newinst)
+static int tap_instr (bitbang_adapter_t *a, int nbits, unsigned newinst)
 {
 	unsigned status = 0, mask;
 
-	tap_step (1);		/* goto Select-DR-Scan */
-	tap_step (1);		/* goto Select-IR-Scan */
-	tap_step (0);		/* goto Capture-IR */
-	tap_step (0);		/* goto Shift-IR */
+	tap_step (a, 1);		/* goto Select-DR-Scan */
+	tap_step (a, 1);		/* goto Select-IR-Scan */
+	tap_step (a, 0);		/* goto Capture-IR */
+	tap_step (a, 0);		/* goto Shift-IR */
 	for (mask=1; nbits; --nbits) {
 		/* If last bit, put TMS=1 to exit Shift-IR state */
-		if (bitbang_io (nbits == 1, newinst & mask))
+		if (bitbang_io (a, nbits == 1, newinst & mask))
 			status |= mask;
 		mask <<= 1;
 	}
-	tap_step (1);		/* goto Update-IR */
+	tap_step (a, 1);		/* goto Update-IR */
 /*fprintf (stderr, "tap_instr() status = %#x\n", status);*/
 	return status & 4;
 }
@@ -286,14 +201,15 @@ int tap_instr (int nbits, unsigned newinst)
  * If newdata is NULL, zeros are sent in the data stream.
  * If olddata is NULL, readout bits are thrown away.
  */
-void tap_data (int nbits, unsigned char *newdata, unsigned char *olddata)
+static void tap_data (bitbang_adapter_t *a,
+	int nbits, unsigned char *newdata, unsigned char *olddata)
 {
 	unsigned databits = 0, readbits = 0;
 	unsigned char mask = 0;
 
-	tap_step (1);			/* goto Select-DR-Scan */
-	tap_step (0);			/* goto Capture-DR */
-	tap_step (0);			/* goto Shift-DR */
+	tap_step (a, 1);			/* goto Select-DR-Scan */
+	tap_step (a, 0);			/* goto Capture-DR */
+	tap_step (a, 0);			/* goto Shift-DR */
 	for (; nbits; --nbits) {
 		if (mask == 0) {		/* every 8 bits sent... */
 			if (newdata)		/* ...get a new word */
@@ -302,7 +218,7 @@ void tap_data (int nbits, unsigned char *newdata, unsigned char *olddata)
 			readbits = 0;
 		}
 		/* If last bit, put TMS=1 to exit Shift-DR state */
-		if (bitbang_io (nbits == 1, databits & mask))
+		if (bitbang_io (a, nbits == 1, databits & mask))
 			readbits |= mask;	/* compose readout data */
 		mask <<= 1;
 		if (olddata) {
@@ -311,76 +227,37 @@ void tap_data (int nbits, unsigned char *newdata, unsigned char *olddata)
 				olddata++;
 		}
 	}
-	tap_step (1);			/* goto Update-DR */
+	tap_step (a, 1);			/* goto Update-DR */
 }
 
 /*
  * Read the Device Identification code
  */
-unsigned tap_read_idcode (void)
+static unsigned bitbang_get_idcode (adapter_t *adapter)
 {
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned idcode = 0;
 
 	/* Reset the JTAG TAP controller. */
-	tap_step (1);
-	tap_step (1);
-	tap_step (1);
-	tap_step (1);			/* 5 cycles with TMS=1 */
-	tap_step (1);
-	tap_step (0);			/* TMS=0 to enter run-test/idle */
+	tap_step (a, 1);
+	tap_step (a, 1);
+	tap_step (a, 1);
+	tap_step (a, 1);		/* 5 cycles with TMS=1 */
+	tap_step (a, 1);
+	tap_step (a, 0);		/* TMS=0 to enter run-test/idle */
 
-	tap_instr (4, TAP_IDCODE);	/* Select IDCODE register */
-	tap_data (32, 0,		/* Read out 32 bits into idcode */
+	tap_instr (a, 4, TAP_IDCODE);	/* Select IDCODE register */
+	tap_data (a, 32, 0,		/* Read out 32 bits into idcode */
 		(unsigned char*) &idcode);
 	return idcode;
-}
-
-int tap_test (int iterations)
-{
-	unsigned result, mask, last_bit = 0;
-	unsigned pattern = 0;
-
-	tap_instr (4, TAP_BYPASS);	/* Enter BYPASS mode. */
-	tap_step (1);			/* goto Select-DR-Scan */
-	tap_step (0);			/* goto Capture-DR */
-	tap_step (0);			/* goto Shift-DR */
-	do {
-		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
-
-		/* Pass the pattern through TDI-TDO. */
-		result = 0;
-		mask = 1;
-		do {
-			if (bitbang_io (0, pattern & mask))
-				result += mask;
-		} while (mask <<= 1);
-
-		fprintf (stderr, "tap_test sent %08x received %08x\n",
-			pattern<<1 | last_bit, result);
-		if ((result & 1) != last_bit ||
-		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {
-			/* Reset the JTAG TAP controller. */
-			tap_step (1);
-			tap_step (1);
-			tap_step (1);
-			tap_step (1);	/* 5 cycles with TMS=1 */
-			tap_step (1);
-			tap_step (0);	/* TMS=0 to enter run-test/idle */
-			return 0;
-		}
-		last_bit = pattern >> 31;
-	} while (--iterations > 0);
-	tap_step (1);			/* goto Exit1-DR */
-	tap_step (1);			/* goto Update-DR */
-	tap_step (0);			/* Run-Test/idle => exec instr. */
-	return 1;
 }
 
 /*
  * Чтение регистра OnCD.
  */
-unsigned oncd_read (int reg, int reglen)
+static unsigned bitbang_oncd_read (adapter_t *adapter, int reg, int reglen)
 {
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned char data[5];
 	unsigned value;
 
@@ -389,7 +266,7 @@ unsigned oncd_read (int reg, int reglen)
 	data[2] = 0;
 	data[3] = 0;
 	data[4] = 0;
-	tap_data (8 + reglen, data, data);
+	tap_data (a, 8 + reglen, data, data);
 	value = data[1] | data[2] << 8 | data[3] << 16 | data[4] << 24;
 	return value;
 }
@@ -397,8 +274,10 @@ unsigned oncd_read (int reg, int reglen)
 /*
  * Запись регистра OnCD.
  */
-void oncd_write (unsigned value, int reg, int reglen)
+static void bitbang_oncd_write (adapter_t *adapter,
+	unsigned value, int reg, int reglen)
 {
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned char data[5];
 
 	data[0] = reg;
@@ -408,12 +287,218 @@ void oncd_write (unsigned value, int reg, int reglen)
 		data[3] = value >> 16;
 		data[4] = value >> 24;
 	}
-	tap_data (8 + reglen, data, 0);
+	tap_data (a, 8 + reglen, data, 0);
+}
+
+/*
+ * Перевод кристалла в режим отладки путём манипуляций
+ * регистрами данных JTAG.
+ */
+static void bitbang_stop_cpu (adapter_t *adapter)
+{
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
+	int old_ir, i;
+	unsigned oscr;
+
+	/* Debug request. */
+	tap_instr (a, 4, TAP_DEBUG_REQUEST);
+
+	/* Wait while processor enters debug mode. */
+	i = 0;
+	for (;;) {
+		old_ir = tap_instr (a, 4, TAP_DEBUG_ENABLE);
+		if (old_ir & 0x4)
+			break;
+		mdelay (10);
+		if (++i >= 50) {
+			fprintf (stderr, "Timeout while entering debug mode\n");
+			exit (1);
+		}
+	}
+	bitbang_oncd_write (adapter, 0, OnCD_OBCR, 12);
+	oscr = bitbang_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_TME;
+	bitbang_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+}
+
+/*
+ * Инициализация адаптера Bitbang.
+ * Возвращаем указатель на структуру данных, выделяемую динамически.
+ * Если адаптер не обнаружен, возвращаем 0.
+ */
+adapter_t *adapter_open_bitbang (void)
+{
+	bitbang_adapter_t *a;
+	struct usb_bus *bus;
+	struct usb_device *dev;
+
+	usb_init();
+	usb_find_busses();
+	usb_find_devices();
+	for (bus = usb_get_busses(); bus; bus = bus->next) {
+		for (dev = bus->devices; dev; dev = dev->next) {
+			if (dev->descriptor.idVendor == BITBANG_VID &&
+			    dev->descriptor.idProduct == BITBANG_PID)
+				goto found;
+		}
+	}
+	/*fprintf (stderr, "USB adapter not found: vid=%04x, pid=%04x\n",
+		BITBANG_VID, BITBANG_PID);*/
+	return 0;
+found:
+	a = calloc (1, sizeof (*a));
+	if (! a) {
+		fprintf (stderr, "Out of memory\n");
+		return 0;
+	}
+	a->usbdev = usb_open (dev);
+	if (! a->usbdev) {
+		fprintf (stderr, "Bitbang: usb_open() failed\n");
+		free (a);
+		return 0;
+	}
+	usb_claim_interface (a->usbdev, 0);
+
+	/* Reset the ftdi device. */
+	if (usb_control_msg (a->usbdev,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "FTDI reset failed\n");
+failed:		usb_release_interface (a->usbdev, 0);
+		usb_close (a->usbdev);
+		free (a);
+		return 0;
+	}
+
+	/* Sync bit bang mode. */
+	if (usb_control_msg (a->usbdev,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_BITMODE, TCK | TDI | TMS | NTRST | NSYSRST | 0x400,
+	    0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "Can't set sync bitbang mode\n");
+		goto failed;
+	}
+
+	/* Ровно 500 нсек между выдачами. */
+	unsigned divisor = 0;
+	unsigned char latency_timer = 1;
+
+	int baud = (divisor == 0) ? 3000000 :
+		(divisor == 1) ? 2000000 : 3000000 / divisor;
+	fprintf (stderr, "Speed %d samples/sec\n", baud);
+
+	/* Frequency divisor is 14-bit non-zero value. */
+	if (usb_control_msg (a->usbdev,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_BAUD_RATE, divisor,
+	    0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "Can't set baud rate\n");
+		goto failed;
+	}
+
+	if (usb_control_msg (a->usbdev,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
+	    SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
+		fprintf (stderr, "unable to set latency timer\n");
+		goto failed;
+	}
+	if (usb_control_msg (a->usbdev,
+	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_IN,
+	    SIO_GET_LATENCY_TIMER, 0, 0, (char*) &latency_timer, 1, 1000) != 1) {
+		fprintf (stderr, "unable to get latency timer\n");
+		goto failed;
+	}
+	fprintf (stderr, "Latency timer: %u usec\n", latency_timer);
+
+	/* Reset the JTAG TAP controller. */
+	bitbang_io (a, 1, 1);
+	bitbang_io (a, 1, 1);
+	bitbang_io (a, 1, 1);
+	bitbang_io (a, 1, 1);	/* 5 cycles with TMS=1 */
+	bitbang_io (a, 1, 1);
+	bitbang_io (a, 0, 1);	/* TMS=0 to enter run-test/idle */
+
+	/* Обязательные функции. */
+	a->adapter.name = "Bitbang";
+	a->adapter.close = bitbang_close;
+	a->adapter.get_idcode = bitbang_get_idcode;
+	a->adapter.stop_cpu = bitbang_stop_cpu;
+	a->adapter.oncd_read = bitbang_oncd_read;
+	a->adapter.oncd_write = bitbang_oncd_write;
+#if 0
+	/* Расширенные возможности. */
+	a->adapter.read_block = bitbang_read_block;
+	a->adapter.write_block = bitbang_write_block;
+	a->adapter.write_nwords = bitbang_write_nwords;
+	a->adapter.program_block32 = bitbang_program_block32;
+	a->adapter.program_block32_unprotect = bitbang_program_block32_unprotect;
+	a->adapter.program_block32_protect = bitbang_program_block32_protect;
+	a->adapter.program_block64 = bitbang_program_block64;
+#endif
+	return &a->adapter;
 }
 
 #ifdef STANDALONE
+static int bitbang_test (adapter_t *adapter, int iterations)
+{
+	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
+	unsigned result, mask, last_bit = 0;
+	unsigned pattern = 0;
+
+	tap_instr (a, 4, TAP_BYPASS);	/* Enter BYPASS mode. */
+	tap_step (a, 1);		/* goto Select-DR-Scan */
+	tap_step (a, 0);		/* goto Capture-DR */
+	tap_step (a, 0);		/* goto Shift-DR */
+	do {
+		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
+
+		/* Pass the pattern through TDI-TDO. */
+		result = 0;
+		mask = 1;
+		do {
+			if (bitbang_io (a, 0, pattern & mask))
+				result += mask;
+		} while (mask <<= 1);
+
+		fprintf (stderr, "tap_test sent %08x received %08x\n",
+			pattern<<1 | last_bit, result);
+		if ((result & 1) != last_bit ||
+		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {
+			/* Reset the JTAG TAP controller. */
+			tap_step (a, 1);
+			tap_step (a, 1);
+			tap_step (a, 1);
+			tap_step (a, 1); /* 5 cycles with TMS=1 */
+			tap_step (a, 1);
+			tap_step (a, 0); /* TMS=0 to enter run-test/idle */
+			return 0;
+		}
+		last_bit = pattern >> 31;
+	} while (--iterations > 0);
+	tap_step (a, 1);		/* goto Exit1-DR */
+	tap_step (a, 1);		/* goto Update-DR */
+	tap_step (a, 0);		/* Run-Test/idle => exec instr. */
+	return 1;
+}
+
+int debug;
+
+#if defined (__CYGWIN32__) || defined (MINGW32)
+#include <windows.h>
+void mdelay (unsigned msec)
+{
+	Sleep (msec);
+}
+#else
+void mdelay (unsigned msec)
+{
+	usleep (msec * 1000);
+}
+#endif
+
 int main (int argc, char **argv)
 {
+	adapter_t *adapter;
 	int ch;
 
 	setvbuf (stdout, (char *)NULL, _IOLBF, 0);
@@ -443,22 +528,27 @@ usage:		printf ("Test for FT232R JTAG adapter.\n");
 	default:
 		goto usage;
 	case 1:
+		adapter = adapter_open_bitbang ();
+		if (! adapter) {
+			fprintf (stderr, "No bitbang adapter found.\n");
+			exit (1);
+		}
 		if (strcmp ("test", argv[0]) == 0) {
-			bitbang_init ();
-			if (tap_test (20))
+			if (bitbang_test (adapter, 20))
 				printf ("TAP tested OK.\n");
 			else
 				printf ("TAP test FAILED!\n");
-			bitbang_close ();
 
 		} else if (strcmp ("idcode", argv[0]) == 0) {
 			int i;
-			bitbang_init ();
-			for (i=0; i<1000000; ++i)
-				printf ("IDCODE = %08x\n", tap_read_idcode());
-			bitbang_close ();
-		} else
+			for (i=0; i<10; ++i)
+				printf ("IDCODE = %08x\n", bitbang_get_idcode (adapter));
+		} else {
+			bitbang_close (adapter);
 			goto usage;
+		}
+
+		bitbang_close (adapter);
 		break;
 	}
 	return 0;

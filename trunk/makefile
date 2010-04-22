@@ -1,14 +1,16 @@
 CC		= gcc
-CFLAGS		= -Wall -g -I/opt/local/include #-O
-#OBJS		= adapter-lpt.o conf.o
-
-OBJS		= adapter-usb.o target.o conf.o
+CFLAGS		= -Wall -g -I/opt/local/include -O
 LIBS		= -L/opt/local/lib -lusb-1.0
+
+OBJS		= mcprog.o target.o conf.o
+OBJS		+= adapter-usb.o
+OBJS		+= adapter-lpt.o
+OBJS		+= adapter-bitbang.o
 
 all:		mcprog adapter-bitbang
 
-mcprog:		$(OBJS) mcprog.o
-		$(CC) -o mcprog mcprog.o $(OBJS) $(LIBS)
+mcprog:		$(OBJS)
+		$(CC) -o mcprog $(OBJS) $(LIBS)
 
 adapter-bitbang: adapter-bitbang.c
 		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c -L/opt/local/lib -lusb
