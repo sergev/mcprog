@@ -48,6 +48,14 @@ typedef struct {
 #define ADAPTER_ACTIVE_RESET	0x04
 #define ADAPTER_DEACTIVE_RESET	0x05
 
+/* Регистр IRd команды JTAG */
+#define IR_EXTEST		0x00
+#define IR_SAMPLE_PRELOAD	0x11
+#define IR_IDCODE		0x33
+#define IR_DEBUG_REQUEST	0x44
+#define IR_DEBUG_ENABLE		0x55
+#define IR_BYPASS		0xff
+
 /*
  * Пакет, посылаемый адаптеру USB-JTAG, может содержать от одной до 40 команд.
  * Каждая команда занимает от 2 до 6 байт:
@@ -361,8 +369,8 @@ static void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 	unsigned i, oscr, data, addr;
 
 	for (i=0; i<nwords; i++) {
-		data = va_arg (args, unsigned);
 		addr = va_arg (args, unsigned);
+		data = va_arg (args, unsigned);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
 		ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data);
 	}
