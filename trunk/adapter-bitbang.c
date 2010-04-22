@@ -145,7 +145,7 @@ static void bitbang_read (bitbang_adapter_t *a,
 }
 
 /*
- * Add TMS step (2 samples) to send buffer.
+ * Add a TMS step (2 samples) to send buffer.
  */
 static void bitbang_step (bitbang_adapter_t *a, int tms)
 {
@@ -165,14 +165,9 @@ static void bitbang_send_recv (bitbang_adapter_t *a)
 	int empty_rxfifo, bytes_to_read, bytes_read;
 	uint8_t reply [64];
 
-	/* FIFO TX buffer of FT232R chip has size of 128 bytes.
-	 * FIFO RX buffer has 256 bytes. First two receive bytes
-	 * contain modem and line status.
-	 * Unfortunately, transfer sizes bigger that 64 bytes
-	 * frequently cause hang ups. */
 	bitbang_write (a, 0, 1, 1);
 
-	/* RX buffer is empty, except two status bytes. */
+	/* First two receive bytes contain modem and line status. */
 	empty_rxfifo = sizeof(reply) - 2;
 
 	/* Indexes in data buffer. */
@@ -180,7 +175,9 @@ static void bitbang_send_recv (bitbang_adapter_t *a)
 	rxdone = 0;
 	while (rxdone < a->output_len) {
 		/* Try to send as much as possible,
-		 * but avoid overflow of receive buffer. */
+		 * but avoid overflow of receive buffer.
+		 * Unfortunately, transfer sizes bigger that
+		 * 64 bytes cause hang ups. */
 		bytes_to_write = 64;
 		if (bytes_to_write > a->output_len - txdone)
 			bytes_to_write = a->output_len - txdone;
@@ -243,9 +240,7 @@ static void bitbang_close (adapter_t *adapter)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 
-        if (usb_release_interface (a->usbdev, 0) != 0) {
-		fprintf (stderr, "bitbang_close() usb release interface failed\n");
-	}
+	usb_release_interface (a->usbdev, 0);
 	usb_close (a->usbdev);
 	free (a);
 }
@@ -275,7 +270,6 @@ static int tap_instr (bitbang_adapter_t *a, int nbits, unsigned newinst)
 		bitbang_write (a, 1, tms, tdi);
 	}
 	bitbang_step (a, 1);		/* goto Update-IR */
-/*fprintf (stderr, "tap_instr() status = %#x\n", status);*/
 	bitbang_send_recv (a);
 	bitbang_read (a, input_offset, nbits, (unsigned char*) &status);
 	return status;
@@ -422,7 +416,6 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned old_ir, i, oscr;
 
-/*fprintf (stderr, "bitbang_stop_cpu() called\n");*/
 	/* Debug request. */
 	tap_instr (a, 4, TAP_DEBUG_REQUEST);
 
@@ -430,7 +423,6 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	i = 0;
 	for (;;) {
 		old_ir = tap_instr (a, 4, TAP_DEBUG_ENABLE);
-/*fprintf (stderr, "bitbang_stop_cpu() old_ir = %#x\n", old_ir);*/
 		if (old_ir == 5)
 			break;
 		mdelay (10);
@@ -443,7 +435,6 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	oscr = bitbang_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_TME;
 	bitbang_oncd_write (adapter, oscr, OnCD_OSCR, 32);
-/*fprintf (stderr, "bitbang_stop_cpu() returned\n");*/
 }
 
 /*
@@ -580,7 +571,7 @@ static int bitbang_test (adapter_t *adapter, int iterations)
 		bitbang_send_recv (a);
 		bitbang_read (a, input_offset, 32, (unsigned char*) &result);
 
-		fprintf (stderr, "tap_test sent %08x received %08x\n",
+		fprintf (stderr, "sent %08x received %08x\n",
 			pattern<<1 | last_bit, result);
 		if ((result & 1) != last_bit ||
 		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {

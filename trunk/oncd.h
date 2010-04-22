@@ -17,20 +17,12 @@
 /*
  * Команды JTAG TAP для Elvees.
  */
-#define TAP_EXTEST		0x0
-#define TAP_SAMPLE		0x1
-#define TAP_IDCODE		0x03	/* Select the ID register */
-#define TAP_DEBUG_REQUEST	0x04	/* Stop processor */
-#define TAP_DEBUG_ENABLE	0x05	/* Put processor in debug mode */
-#define TAP_BYPASS		0x0F	/* Select the BYPASS register */
-
-/* Регистр IRd команды JTAG */
-#define IR_EXTEST		0x00
-#define IR_SAMPLE_PRELOAD	0x11
-#define IR_IDCODE		0x33
-#define IR_DEBUG_REQUEST	0x44
-#define IR_DEBUG_ENABLE		0x55
-#define IR_BYPASS		0xff
+#define TAP_EXTEST		0
+#define TAP_SAMPLE		1
+#define TAP_IDCODE		3	/* Select the ID register */
+#define TAP_DEBUG_REQUEST	4	/* Stop processor */
+#define TAP_DEBUG_ENABLE	5	/* Put processor in debug mode */
+#define TAP_BYPASS		0xF	/* Select the BYPASS register */
 
 /* Биты регистра IRd */
 #define	IRd_RUN		0x20	/* 0 - step mode, 1 - run continuosly */
