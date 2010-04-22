@@ -156,48 +156,6 @@ write_more:
 	return (reply[3] & READ_TDO) != 0;
 }
 
-#if 0
-/*
- * JTAG reset.
- */
-static int bitbang_reset (bitbang_adapter_t *a, int trst, int sysrst)
-{
-	unsigned char data [2], reply [4];
-	int bytes_written, bytes_read, n;
-
-	data[0] = NTRST | NSYSRST;
-	data[1] = data[0];
-	if (trst)
-		data[0] &= ~NTRST;
-	if (sysrst)
-		data[0] &= ~NSYSRST;
-
-	/* Write data. */
-	bytes_written = 0;
-write_more:
-	n = usb_bulk_write (a->usbdev, IN_EP, (char*) data + bytes_written,
-		sizeof(data) - bytes_written, 1000);
-        if (n < 0) {
-		fprintf (stderr, "bitbang_reset(): usb bulk write failed\n");
-		exit (1);
-	}
-	if (debug)
-		fprintf (stderr, "bitbang_reset(%d, %d) write %u bytes\n", trst, sysrst, n);
-	bytes_written += n;
-	if (bytes_written < sizeof(data))
-		goto write_more;
-
-	/* Get reply. */
-	bytes_read = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
-		sizeof(reply), 2000);
-	if (bytes_read != sizeof(reply)) {
-		fprintf (stderr, "bitbang_reset(): usb bulk read failed\n");
-		exit (1);
-	}
-	return (reply[3] & READ_TDO) != 0;
-}
-#endif
-
 static void bitbang_close (adapter_t *adapter)
 {
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
@@ -387,11 +345,7 @@ static void bitbang_stop_cpu (adapter_t *adapter)
 	bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
 	unsigned old_ir, i, oscr;
 
-fprintf (stderr, "bitbang_stop_cpu() called\n");
-#if 0
-	/* Сброс процессора. */
-	bitbang_reset (a, 0, 1);
-#endif
+/*fprintf (stderr, "bitbang_stop_cpu() called\n");*/
 	/* Debug request. */
 	tap_instr (a, 4, TAP_DEBUG_REQUEST);
 
