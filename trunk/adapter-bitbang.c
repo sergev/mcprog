@@ -166,7 +166,7 @@ static void bitbang_send_recv (bitbang_adapter_t *a)
 {
 	int bytes_to_write, bytes_written, n, txdone, rxdone;
 	int empty_rxfifo, bytes_to_read, bytes_read;
-	uint8_t reply [64];
+	unsigned char reply [64];
 
 	bitbang_write (a, 0, 1, 1);
 
