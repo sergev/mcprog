@@ -1,14 +1,19 @@
-CC		= gcc
-#CC		= i586-mingw32msvc-gcc
+#CC		= gcc
+CC		= i586-mingw32msvc-gcc
 CFLAGS		= -Wall -g -O -DMINGW32 -Ilibusb-win32
 LDFLAGS		= -s
 LIBS		= -Llibusb-win32 -lusb
-OBJS		= multicore-usb.o conf.o
+
+OBJS		= mcprog.o target.o conf.o
+OBJS		+= adapter-usb.o
+OBJS		+= adapter-lpt.o
+OBJS		+= adapter-bitbang.o
+
 
 all:		mcprog.exe
 
 mcprog.exe:	$(OBJS) mcprog.o
-		$(CC) $(LDFLAGS) -o $@ mcprog.o $(OBJS) $(LIBS)
+		$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
 
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
