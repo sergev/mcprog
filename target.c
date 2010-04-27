@@ -132,7 +132,7 @@ static void target_exec (target_t *t, unsigned instr)
  */
 void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 {
-	unsigned wait, oscr;
+	unsigned count, oscr;
 
 	if (phys_addr >= 0xA0000000)
 		phys_addr -= 0xA0000000;
@@ -145,13 +145,13 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 	t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
 	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
 
-	for (wait = 1000; wait != 0; wait--) {
+	for (count = 1000; count != 0; count--) {
 		oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
 		mdelay (1);
 	}
-	if (wait == 0) {
+	if (count == 0) {
 		fprintf (stderr, "Timeout writing memory, aborted.\n");
 		exit (1);
 	}
@@ -189,7 +189,7 @@ void target_read_start (target_t *t)
 
 unsigned target_read_next (target_t *t, unsigned phys_addr)
 {
-	unsigned wait, oscr, data;
+	unsigned count, oscr, data;
 
 	if (phys_addr >= 0xA0000000)
 		phys_addr -= 0xA0000000;
@@ -198,13 +198,13 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 
 	t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
 	t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
-	for (wait = 10; wait != 0; wait--) {
+	for (count = 100; count != 0; count--) {
 		oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
 		if (oscr & OSCR_RDYm)
 			break;
 		mdelay (1);
 	}
-	if (wait == 0) {
+	if (count == 0) {
 		fprintf (stderr, "Timeout reading memory, aborted.\n");
 		exit (1);
 	}
@@ -541,6 +541,7 @@ int target_flash_detect (target_t *t, unsigned addr,
 
 			/* Stop read ID mode. */
 			target_write_byte (t, base, t->flash_cmd_f0);
+
 		} else if (t->flash_delay) {
 			/* Word-wide data bus. */
 			mdelay (t->flash_delay);
@@ -656,6 +657,7 @@ int target_erase (target_t *t, unsigned addr)
 		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
 		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
 		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_10);
+
 	} else if (t->flash_delay) {
 		target_write_nwords (t, 6,
 			base + t->flash_addr_odd, t->flash_cmd_aa,

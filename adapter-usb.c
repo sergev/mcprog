@@ -652,6 +652,8 @@ found:
 	}
 	usb_set_configuration (a->usbdev, 1);
 	usb_claim_interface (a->usbdev, 0);
+	usb_clear_halt (a->usbdev, BULK_WRITE_ENDPOINT);
+	usb_clear_halt (a->usbdev, BULK_READ_ENDPOINT);
 
 	bulk_cmd (a->usbdev, ADAPTER_PLL_12MHZ);
 /*	bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);*/
