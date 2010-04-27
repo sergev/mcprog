@@ -164,7 +164,7 @@ static unsigned bulk_read (usb_dev_handle *usbdev,
 	int transferred;
 
 	transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
-		(char*) rb, rlen, 1000);
+		(char*) rb, rlen, 2000);
 	if (transferred != rlen) {
 		fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
@@ -208,7 +208,7 @@ static unsigned bulk_write_read (usb_dev_handle *usbdev,
 		_exit (-1);
 	}
 	transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
-		(char*) rb, rlen, 1000);
+		(char*) rb, rlen, 2000);
 	if (transferred != rlen) {
 		fprintf (stderr, "Bulk (write-)read failed: %d/%d bytes from endpoint %#x.\n",
 			transferred, rlen, BULK_READ_ENDPOINT);
@@ -247,7 +247,7 @@ static void usb_stop_cpu (adapter_t *adapter)
 
 	/* Запрос Debug request, сброс процессора. */
 	for (retry=0; ; retry++) {
-		if (bulk_write_read (a->usbdev, pkt_debug_request_sysrst, 2, rb, 8) != 2) {
+		if (bulk_write_read (a->usbdev, pkt_debug_request_sysrst, 2, rb, 2) != 2) {
 			fprintf (stderr, "Failed debug request.\n");
 			exit (-1);
 		}
@@ -261,7 +261,7 @@ static void usb_stop_cpu (adapter_t *adapter)
 
 	/* Разрешить отладочный режим. */
 	for (retry=0; ; retry++) {
-		if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 8) != 2) {
+		if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
 			fprintf (stderr, "Failed debug enable.\n");
 			exit (-1);
 		}
@@ -287,7 +287,7 @@ static unsigned usb_get_idcode (adapter_t *adapter)
 		0x03,
 	};
 
-	if (bulk_write_read (a->usbdev, pkt_idcode, 6, rb, 8) != 4) {
+	if (bulk_write_read (a->usbdev, pkt_idcode, 6, rb, 4) != 4) {
 		fprintf (stderr, "Failed to get IDCODE.\n");
 		exit (-1);
 	}
@@ -662,10 +662,10 @@ found:
 	mdelay (1);
 
 	/* Сброс OnCD. */
-	bulk_write_read (a->usbdev, pkt_reset, 2, rb, 32);
+	bulk_write_read (a->usbdev, pkt_reset, 2, rb, 2);
 
 	/* Получить версию прошивки. */
-	if (bulk_write_read (a->usbdev, pkt_getver, 2, rb, 8) != 2) {
+	if (bulk_write_read (a->usbdev, pkt_getver, 2, rb, 2) != 2) {
 		fprintf (stderr, "Failed to get adapter version.\n");
 		free (a);
 		return 0;
