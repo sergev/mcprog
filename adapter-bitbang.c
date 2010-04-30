@@ -66,7 +66,7 @@ typedef struct {
  * Identifiers of USB adapter.
  */
 #define BITBANG_VID		0x0403
-#define BITBANG_PID		0x6001
+#define BITBANG_PID		0x7777	/* homemade RS232R adapter */
 
 /*
  * USB endpoints.
