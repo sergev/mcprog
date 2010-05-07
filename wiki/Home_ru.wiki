@@ -2,8 +2,15 @@
 
 = Утилита MCPROG =
 Утилита MCPROG предназначена для записи программного обеспечения в Flash-память микроконтроллеров [http://multicore.ru/index.php?id=27 Элвис Мультикор].
-В качестве программатора используется адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера.
-Поддерживаются чипы Flash-памяти AMD/Alliance 29LV800 и [http://www.sst.com/products.xhtml/parallel_flash/39/x16/SST39VF800A SST 39VF800].
+В качестве программатора используется один из адаптеров:
+ * адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера;
+ * адаптер [http://multicore.ru/index.php?id=667 USB-JTAG], подключающийся к порту USB.
+
+Поддерживаются чипы Flash-памяти:
+ * AMD/Alliance 29LV800;
+ * [http://www.sst.com/products.xhtml/parallel_flash/39/x16/SST39VF800A SST 39VF800];
+ * Ангстрем 1638РР1;
+ * [http://milandr.ru/index.php?mact=Products,cntnt01,details,0&cntnt01productid=115&cntnt01returnid=68 Миландр 1636РР2У].
 
 = Вызов =
 
