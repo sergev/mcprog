@@ -9,6 +9,7 @@
 Поддерживаются чипы Flash-памяти:
  * AMD/Alliance 29LV800;
  * [http://www.sst.com/products/?inode=41429 SST 39VF800];
+ * [http://www.sst.com/products/?inode=41419 SST 39VF6401B];
  * Ангстрем 1638РР1;
  * [http://milandr.ru/index.php?mact=Products,cntnt01,details,0&cntnt01productid=115&cntnt01returnid=68 Миландр 1636РР2У].
 
