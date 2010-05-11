@@ -169,10 +169,14 @@ static void mpsse_step (mpsse_adapter_t *a, int tms)
 
 static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int bytes_to_write)
 {
-	int bytes_written;
+	int bytes_written, i;
 
-	if (debug)
-		fprintf (stderr, "usb bulk write %d bytes\n", bytes_to_write);
+	if (debug) {
+		fprintf (stderr, "usb bulk write %d bytes:", bytes_to_write);
+		for (i=0; i<bytes_to_write; i++)
+			fprintf (stderr, "%c%02x", i ? '-' : ' ', output[i]);
+		fprintf (stderr, "\n");
+	}
 	bytes_written = usb_bulk_write (a->usbdev, IN_EP, (char*) output,
 		bytes_to_write, 1000);
 	if (bytes_written < 0) {
@@ -191,7 +195,7 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int bytes_to_
  */
 static void mpsse_send_recv (mpsse_adapter_t *a, unsigned char *read_data)
 {
-	int bytes_to_write, bytes_to_read, bytes_read, n;
+	int bytes_to_write, bytes_to_read, bytes_read, n, i;
 	unsigned char output [64];
 	unsigned char reply [64];
 
@@ -272,22 +276,39 @@ static void mpsse_send_recv (mpsse_adapter_t *a, unsigned char *read_data)
 			bytes_read += n - 2;
 		}
 	}
+	if (debug && bytes_to_read > 0) {
+		fprintf (stderr, "mpsse_send_recv returned %d bytes:", bytes_to_read);
+		for (i=0; i<bytes_to_read; i++)
+			fprintf (stderr, "%c%02x", i ? '-' : ' ', read_data[i]);
+		fprintf (stderr, "\n");
+	}
 	a->output_len = 0;
 	a->tdo_start = -1;
 	a->tdo_end = -1;
 }
 
-static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst)
+static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst, int led)
 {
-	unsigned char output [64];
+	unsigned char output [3];
+	unsigned low_output = 0x08;
+	unsigned low_direction = 0x1b;
 	unsigned high_direction = 0x0f;
 	unsigned high_output = 0;
+
+	/* command "set data bits low byte" */
+	output [0] = 0x80;
+	output [1] = low_output;
+	output [2] = low_direction;
+	bulk_write (a, output, 3);
 
 	if (! trst)
 		high_output |= 1;
 
 	if (sysrst)
 		high_output |= 2;
+
+	if (led)
+		high_output |= 8;
 
 	/* command "set data bits high byte" */
 	output [0] = 0x82;
@@ -299,10 +320,22 @@ static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst)
 		trst, sysrst, high_output, high_direction);
 }
 
+static void mpsse_speed (mpsse_adapter_t *a, int divisor)
+{
+	unsigned char output [3];
+
+	/* command "set TCK divisor" */
+	output [0] = 0x86;
+	output [1] = divisor;
+	output [2] = divisor >> 8;
+	bulk_write (a, output, 3);
+}
+
 static void mpsse_close (adapter_t *adapter)
 {
 	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
 
+	mpsse_reset (a, 0, 0, 0);
 	usb_release_interface (a->usbdev, 0);
 	usb_close (a->usbdev);
 	free (a);
@@ -558,21 +591,8 @@ failed:		usb_release_interface (a->usbdev, 0);
 	}
 
 	/* Ровно 500 нсек между выдачами. */
-	unsigned divisor = 0;
-	unsigned char latency_timer = 5;
-
-	int baud = 3000000 / (divisor + 1);
-	if (debug)
-		fprintf (stderr, "MPSSE: speed %d samples/sec\n", baud);
-
-	/* Frequency divisor is 14-bit non-zero value. */
-	if (usb_control_msg (a->usbdev,
-	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_BAUD_RATE, divisor,
-	    1, 0, 0, 1000) != 0) {
-		fprintf (stderr, "Can't set baud rate\n");
-		goto failed;
-	}
+	unsigned divisor = 5;
+	unsigned char latency_timer = 10;
 
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
@@ -589,7 +609,15 @@ failed:		usb_release_interface (a->usbdev, 0);
 	if (debug)
 		fprintf (stderr, "MPSSE: latency timer: %u usec\n", latency_timer);
 
-	mpsse_reset (a, 0, 0);
+	mpsse_reset (a, 0, 0, 1);
+
+	int baud = 6000000 / (divisor + 1);
+	if (debug)
+		fprintf (stderr, "MPSSE: speed %d samples/sec\n", baud);
+	mpsse_speed (a, divisor);
+
+	/* Disable TDI to TDO loopback. */
+	bulk_write (a, (unsigned char*) "\x85", 1);
 
 	/* Reset the JTAG TAP controller. */
 	a->tdo_start = -1;
@@ -718,7 +746,7 @@ usage:		printf ("Test for FT232R JTAG adapter.\n");
 
 		} else if (strcmp ("idcode", argv[0]) == 0) {
 			int i;
-			for (i=0; i<20; ++i)
+			for (i=0; i<2; ++i)
 				printf ("IDCODE = %08x\n", mpsse_get_idcode (adapter));
 		} else {
 			mpsse_close (adapter);
