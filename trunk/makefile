@@ -8,7 +8,7 @@ OBJS		+= adapter-lpt.o
 OBJS		+= adapter-bitbang.o
 OBJS		+= adapter-mpsse.o
 
-all:		mcprog adapter-bitbang
+all:		mcprog adapter-bitbang adapter-mpsse
 
 mcprog:		$(OBJS)
 		$(CC) -o mcprog $(OBJS) $(LIBS)
@@ -16,8 +16,11 @@ mcprog:		$(OBJS)
 adapter-bitbang: adapter-bitbang.c
 		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c $(LIBS)
 
+adapter-mpsse: adapter-mpsse.c
+		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-mpsse.c $(LIBS)
+
 clean:
-		rm -f *~ *.o core mcprog mcprog.exe adapter-bitbang
+		rm -f *~ *.o core mcprog mcprog.exe adapter-bitbang adapter-mpsse
 
 install:	mcprog mcprog.conf
 		install -c -s -oroot -m4755 mcprog /usr/local/bin/mcprog
@@ -25,6 +28,7 @@ install:	mcprog mcprog.conf
 
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
+adapter-mpsse.o: adapter-mpsse.c adapter.h oncd.h
 adapter-lpt.o: adapter-lpt.c adapter.h oncd.h
 adapter-usb.o: adapter-usb.c adapter.h oncd.h
 conf.o: conf.c conf.h

@@ -2,20 +2,6 @@
  * Интерфейс через адаптер FT2232 к процессору Элвис Мультикор.
  * Автор: С.Вакуленко.
  *
- * Можно использовать готовый адаптер Olimex ARM-USB-Tiny с переходником
- * с разъёма ARM 2x10 на разъём MIPS 2x5:
- *
- * Сигнал   Контакт ARM	   Контакт MIPS
- * ------------------------------------
- * /TRST	3		3
- *  TDI		5 		7
- *  TMS		7 		5
- *  TCK		9 		1
- *  TDO		13		9
- * /SYSRST	15		6
- *  GND		4,6,8,10,12,	2,8
- *		14,16,18,20
- *
  * Этот файл распространяется в надежде, что он окажется полезным, но
  * БЕЗ КАКИХ БЫ ТО НИ БЫЛО ГАРАНТИЙНЫХ ОБЯЗАТЕЛЬСТВ; в том числе без косвенных
  * гарантийных обязательств, связанных с ПОТРЕБИТЕЛЬСКИМИ СВОЙСТВАМИ и
@@ -45,39 +31,41 @@ typedef struct {
 	/* Доступ к устройству через libusb. */
 	usb_dev_handle *usbdev;
 
-	/* Буфер для вывода-ввода в режиме MPSSE. */
-	unsigned char output [128];
+	/* Индексы и буферы для вывода. */
 	int output_len;
+	unsigned tms_prolog;
+	unsigned tms_prolog_nbits;
+	unsigned tms_epilog;
+	unsigned tms_epilog_nbits;
+	unsigned long long tdi;
+	unsigned tdi_nbits;
+
+	/* Индексы для ввода. */
+	int tdo_start;
+	int tdo_end;
 } mpsse_adapter_t;
 
 /*
- * We use a layout of original usbjtag adapter, designed by Hubert Hoegl:
- * http://www.hs-augsburg.de/~hhoegl/proj/usbjtag/usbjtag.html
+ * Можно использовать готовый адаптер Olimex ARM-USB-Tiny с переходником
+ * с разъёма ARM 2x10 на разъём MIPS 2x5:
  *
- *   Bit 7 (0x80): unused.
- *   Bit 6 (0x40): /SYSRST output.
- *   Bit 5 (0x20): unused.
- *   Bit 4 (0x10): /TRST output.
- *   Bit 3 (0x08): TMS output.
- *   Bit 2 (0x04): TDO input.
- *   Bit 1 (0x02): TDI output.
- *   Bit 0 (0x01): TCK output.
- *
- * Sync bit bang mode is implemented, as described in FTDI Application
- * Note AN232R-01: "Bit Bang Modes for the FT232R and FT245R".
+ * Сигнал   Контакт ARM	   Контакт MIPS
+ * ------------------------------------
+ * /TRST	3		3
+ *  TDI		5 		7
+ *  TMS		7 		5
+ *  TCK		9 		1
+ *  TDO		13		9
+ * /SYSRST	15		6
+ *  GND		4,6,8,10,12,	2,8
+ *		14,16,18,20
  */
-#define TCK			(1 << 0)
-#define TDI			(1 << 1)
-#define READ_TDO		(1 << 2)
-#define TMS			(1 << 3)
-#define NTRST			(1 << 4)
-#define NSYSRST			(1 << 6)
 
 /*
  * Identifiers of USB adapter.
  */
-#define OLIMEX_VID		0x0403
-#define OLIMEX_PID		0x7777	/* ARM-USB-Tiny */
+#define OLIMEX_VID		0x15ba
+#define OLIMEX_PID		0x0004	/* ARM-USB-Tiny */
 
 /*
  * USB endpoints.
@@ -123,39 +111,52 @@ static char *oscr_bitname[] = {
 };
 
 /*
- * Add one TCK/TMS/TDI sample to send buffer.
+ * Add one TMS/TDI sample to send buffer.
  */
-static void mpsse_write (mpsse_adapter_t *a, int tck, int tms, int tdi)
+static void mpsse_write (mpsse_adapter_t *a, int tms, int tdi)
 {
-	unsigned out_value = NTRST | NSYSRST;
-	if (tck)
-		out_value |= TCK;
-	if (tms)
-		out_value |= TMS;
-	if (tdi)
-		out_value |= TDI;
-
-	if (a->output_len >= (int) sizeof (a->output)) {
-		fprintf (stderr, "mpsse_write: buffer overflow\n");
-		exit (-1);
+	if (a->output_len == 0) {
+		/* Начало JTAG-транзакции. */
+		a->tms_prolog = 0;
+		a->tms_prolog_nbits = 0;
+		a->tms_epilog = 0;
+		a->tms_epilog_nbits = 0;
+		a->tdi = 0;
+		a->tdi_nbits = 0;
 	}
-	a->output [a->output_len++] = out_value;
-}
 
-/*
- * Extract input data from mpsse buffer.
- */
-static void mpsse_read (mpsse_adapter_t *a,
-	unsigned offset, unsigned nbits, unsigned char *data)
-{
-	unsigned n;
+	if (a->tdo_start < 0) {
+		/* Пролог TMS. */
+		if (a->tms_prolog_nbits >= 14) {
+			fprintf (stderr, "mpsse_write: prolog overflow\n");
+			exit (-1);
+		}
+		if (tms)
+			a->tms_prolog |= 1 << a->tms_prolog_nbits;
+		a->tms_prolog_nbits++;
 
-	for (n=0; n<nbits; n++) {
-		if (a->output [offset + n*2 + 1] & READ_TDO)
-			data [n/8] |= 1 << (n & 7);
-		else
-			data [n/8] &= ~(1 << (n & 7));
+	} else if (a->tdo_end < 0) {
+		/* Данные. */
+		if (a->tdi_nbits >= 8*sizeof(a->tdi)) {
+			fprintf (stderr, "mpsse_write: data overflow\n");
+			exit (-1);
+		}
+		if (tdi)
+			a->tdi |= 1ULL << a->tdi_nbits;
+		a->tdi_nbits++;
+	} else {
+		/* Эпилог TMS. */
+		if (a->tms_epilog_nbits >= 7) {
+			fprintf (stderr, "mpsse_write: epilog overflow\n");
+			exit (-1);
+		}
+		if (tms)
+			a->tms_epilog |= 1 << a->tms_epilog_nbits;
+		a->tms_epilog_nbits++;
 	}
+
+	/* Общее количество битов в выходном потоке. */
+	a->output_len++;
 }
 
 /*
@@ -163,91 +164,139 @@ static void mpsse_read (mpsse_adapter_t *a,
  */
 static void mpsse_step (mpsse_adapter_t *a, int tms)
 {
-	mpsse_write (a, 0, tms, 1);
-	mpsse_write (a, 1, tms, 1);
+	mpsse_write (a, tms, 1);
+}
+
+static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int bytes_to_write)
+{
+	int bytes_written;
+
+	if (debug)
+		fprintf (stderr, "usb bulk write %d bytes\n", bytes_to_write);
+	bytes_written = usb_bulk_write (a->usbdev, IN_EP, (char*) output,
+		bytes_to_write, 1000);
+	if (bytes_written < 0) {
+		fprintf (stderr, "usb bulk write failed\n");
+		exit (-1);
+	}
+	if (bytes_written != bytes_to_write)
+		fprintf (stderr, "usb bulk written %d bytes of %d",
+			bytes_written, bytes_to_write);
+
 }
 
 /*
- * Perform sync mpsse output/input transaction.
- * Befor call, an array a->output[] should be filled with data to send.
- * Counter a->output_len contains a number of bytes to send.
- * On return, received data are put back to array a->output[].
+ * Perform MPSSE output/input transaction.
+ * On return, received data are put to array reply[].
  */
-static void mpsse_send_recv (mpsse_adapter_t *a)
+static void mpsse_send_recv (mpsse_adapter_t *a, unsigned char *read_data)
 {
-	int bytes_to_write, bytes_written, n, txdone, rxdone;
-	int empty_rxfifo, bytes_to_read, bytes_read;
+	int bytes_to_write, bytes_to_read, bytes_read, n;
+	unsigned char output [64];
 	unsigned char reply [64];
 
-	mpsse_write (a, 0, 1, 1);
-
-	/* First two receive bytes contain modem and line status. */
-	empty_rxfifo = sizeof(reply) - 2;
-
-	/* Indexes in data buffer. */
-	txdone = 0;
-	rxdone = 0;
-	while (rxdone < a->output_len) {
-		/* Try to send as much as possible,
-		 * but avoid overflow of receive buffer.
-		 * Unfortunately, transfer sizes bigger that
-		 * 64 bytes cause hang ups. */
-		bytes_to_write = 64;
-		if (bytes_to_write > a->output_len - txdone)
-			bytes_to_write = a->output_len - txdone;
-		if (bytes_to_write > empty_rxfifo)
-			bytes_to_write = empty_rxfifo;
-
-		/* Write data. */
-		bytes_written = 0;
-		while (bytes_written < bytes_to_write) {
-			if (debug)
-				fprintf (stderr, "usb bulk write %d bytes\n",
-					bytes_to_write - bytes_written);
-			n = usb_bulk_write (a->usbdev, IN_EP,
-				(char*) a->output + txdone + bytes_written,
-				bytes_to_write - bytes_written, 1000);
-			if (n < 0) {
-				fprintf (stderr, "usb bulk write failed\n");
-				exit (-1);
-			}
-			/*if (n != bytes_to_write)
-				fprintf (stderr, "usb bulk written %d bytes of %d",
-					n, bytes_to_write - bytes_written);*/
-			bytes_written += n;
+	/* Формируем пакет команд MPSSE. */
+	bytes_to_write = 0;
+	bytes_to_read = 0;
+	if (a->tms_prolog_nbits > 0) {
+		/* Пролог TMS, от 1 до 14 бит. */
+		output [bytes_to_write++] = 0x4b;
+		if (a->tms_prolog_nbits < 8) {
+			output [bytes_to_write++] = a->tms_prolog_nbits - 1;
+			output [bytes_to_write++] = a->tms_prolog | 0x80;
+		} else {
+			output [bytes_to_write++] = 6;
+			output [bytes_to_write++] = a->tms_prolog | 0x80;
+			output [bytes_to_write++] = 0x4b;
+			output [bytes_to_write++] = a->tms_prolog_nbits - 7;
+			output [bytes_to_write++] = (a->tms_prolog >> 7) | 0x80;
 		}
-		txdone += bytes_written;
-		empty_rxfifo -= bytes_written;
-
-		if (empty_rxfifo == 0 || txdone == a->output_len) {
-			/* Get reply. */
-			bytes_to_read = sizeof(reply) - empty_rxfifo - 2;
-			bytes_read = 0;
-			while (bytes_read < bytes_to_read) {
-				n = usb_bulk_read (a->usbdev, OUT_EP,
-					(char*) reply,
-					bytes_to_read - bytes_read + 2, 2000);
-				if (n < 0) {
-					fprintf (stderr, "usb bulk read failed\n");
-					exit (-1);
-				}
-				if (n != bytes_to_read + 2)
-					fprintf (stderr, "usb bulk read %d bytes of %d\n",
-						n, bytes_to_read - bytes_read + 2);
-				else if (debug)
-					fprintf (stderr, "usb bulk read %d bytes\n", n);
-
-				if (n > 2) {
-					/* Copy data. */
-					memcpy (a->output + rxdone, reply + 2, n - 2);
-					bytes_read += n;
-					rxdone += n - 2;
-				}
+	}
+	if (a->tdi_nbits > 0) {
+		/* Данные, от 1 до 64 бит. */
+		unsigned nbytes = a->tdi_nbits / 8;
+		unsigned nbits = a->tdi_nbits - nbytes*8;
+		if (nbytes > 0) {
+			/* Целые байты. */
+			if (read_data) {
+				output [bytes_to_write++] = 0x39;
+				bytes_to_read += nbytes;
+			} else
+				output [bytes_to_write++] = 0x19;
+			output [bytes_to_write++] = nbytes - 1;
+			output [bytes_to_write++] = (nbytes - 1) >> 8;
+			while (nbytes-- > 0) {
+				output [bytes_to_write++] = a->tdi;
+				a->tdi >>= 8;
 			}
-			empty_rxfifo = sizeof(reply) - 2;
+		}
+		if (nbits > 0) {
+			/* Последний нецелый байт. */
+			if (read_data) {
+				output [bytes_to_write++] = 0x3B;
+				bytes_to_read++;
+			} else
+				output [bytes_to_write++] = 0x1B;
+			output [bytes_to_write++] = nbits - 1;
+			output [bytes_to_write++] = a->tdi;
+		}
+	}
+	if (a->tms_epilog_nbits > 0) {
+		/* Эпилог TMS, от 1 до 7 бит. */
+		output [bytes_to_write++] = 0x4b;
+		output [bytes_to_write++] = a->tms_epilog_nbits - 1;
+		output [bytes_to_write++] = a->tms_epilog | 0x80;
+	}
+
+	/* Шлём пакет. */
+	bulk_write (a, output, bytes_to_write);
+
+	/* Получаем ответ. */
+	bytes_read = 0;
+	while (bytes_read < bytes_to_read) {
+		n = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
+			bytes_to_read - bytes_read + 2, 2000);
+		if (n < 0) {
+			fprintf (stderr, "usb bulk read failed\n");
+			exit (-1);
+		}
+		if (n != bytes_to_read + 2)
+			fprintf (stderr, "usb bulk read %d bytes of %d\n",
+				n, bytes_to_read - bytes_read + 2);
+		else if (debug)
+			fprintf (stderr, "usb bulk read %d bytes\n", n);
+
+		if (n > 2) {
+			/* Copy data. */
+			memcpy (read_data + bytes_read, reply + 2, n - 2);
+			bytes_read += n - 2;
 		}
 	}
 	a->output_len = 0;
+	a->tdo_start = -1;
+	a->tdo_end = -1;
+}
+
+static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst)
+{
+	unsigned char output [64];
+	unsigned high_direction = 0x0f;
+	unsigned high_output = 0;
+
+	if (! trst)
+		high_output |= 1;
+
+	if (sysrst)
+		high_output |= 2;
+
+	/* command "set data bits high byte" */
+	output [0] = 0x82;
+	output [1] = high_output;
+	output [2] = high_direction;
+
+	bulk_write (a, output, 3);
+	fprintf (stderr, "mpsse_reset (trst=%d, sysrst=%d) high_output=0x%2.2x, high_direction: 0x%2.2x\n",
+		trst, sysrst, high_output, high_direction);
 }
 
 static void mpsse_close (adapter_t *adapter)
@@ -267,25 +316,24 @@ static void mpsse_close (adapter_t *adapter)
  */
 static int tap_instr (mpsse_adapter_t *a, int nbits, unsigned newinst)
 {
-	unsigned status = 0, mask, input_offset, tms, tdi, n;
+	unsigned status = 0, mask, tms, tdi, n;
 
 	mpsse_step (a, 1);		/* goto Select-DR-Scan */
 	mpsse_step (a, 1);		/* goto Select-IR-Scan */
 	mpsse_step (a, 0);		/* goto Capture-IR */
 	mpsse_step (a, 0);		/* goto Shift-IR */
-	input_offset = a->output_len;
+	a->tdo_start = a->output_len;
 	mask = 1;
 	for (n=0; n<nbits; n++) {
 		/* If last bit, put TMS=1 to exit Shift-IR state */
 		tms = (n == nbits-1);
 		tdi = newinst & mask;
 		mask <<= 1;
-		mpsse_write (a, 0, tms, tdi);
-		mpsse_write (a, 1, tms, tdi);
+		mpsse_write (a, tms, tdi);
 	}
+	a->tdo_end = a->output_len;
 	mpsse_step (a, 1);		/* goto Update-IR */
-	mpsse_send_recv (a);
-	mpsse_read (a, input_offset, nbits, (unsigned char*) &status);
+	mpsse_send_recv (a, (unsigned char*) &status);
 	return status;
 }
 
@@ -303,13 +351,13 @@ static int tap_instr (mpsse_adapter_t *a, int nbits, unsigned newinst)
 static void tap_data (mpsse_adapter_t *a,
 	unsigned nbits, unsigned char *newdata, unsigned char *olddata)
 {
-	unsigned databits = 0, input_offset, tms, tdi, n;
+	unsigned databits = 0, tms, tdi, n;
 	unsigned char mask = 0;
 
 	mpsse_step (a, 1);			/* goto Select-DR-Scan */
 	mpsse_step (a, 0);			/* goto Capture-DR */
 	mpsse_step (a, 0);			/* goto Shift-DR */
-	input_offset = a->output_len;
+	a->tdo_start = a->output_len;
 	for (n=0; n<nbits; n++) {
 		if (mask == 0) {		/* every 8 bits sent... */
 			if (newdata)		/* ...get a new word */
@@ -320,13 +368,11 @@ static void tap_data (mpsse_adapter_t *a,
 		tms = (n == nbits-1);
 		tdi = databits & mask;
 		mask <<= 1;
-		mpsse_write (a, 0, tms, tdi);
-		mpsse_write (a, 1, tms, tdi);
+		mpsse_write (a, tms, tdi);
 	}
+	a->tdo_end = a->output_len;
 	mpsse_step (a, 1);			/* goto Update-DR */
-	mpsse_send_recv (a);
-	if (olddata)
-		mpsse_read (a, input_offset, nbits, olddata);
+	mpsse_send_recv (a, olddata);
 }
 
 /*
@@ -476,6 +522,9 @@ adapter_t *adapter_open_mpsse (void)
 		OLIMEX_VID, OLIMEX_PID);*/
 	return 0;
 found:
+	fprintf (stderr, "found USB adapter: vid %04x, pid %04x, type %03x\n",
+		dev->descriptor.idVendor, dev->descriptor.idProduct,
+		dev->descriptor.bcdDevice);
 	a = calloc (1, sizeof (*a));
 	if (! a) {
 		fprintf (stderr, "Out of memory\n");
@@ -492,7 +541,7 @@ found:
 	/* Reset the ftdi device. */
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
+	    SIO_RESET, 0, 1, 0, 0, 1000) != 0) {
 		fprintf (stderr, "FTDI reset failed\n");
 failed:		usb_release_interface (a->usbdev, 0);
 		usb_close (a->usbdev);
@@ -500,21 +549,19 @@ failed:		usb_release_interface (a->usbdev, 0);
 		return 0;
 	}
 
-	/* Sync bit bang mode. */
+	/* MPSSE mode. */
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_BITMODE, TCK | TDI | TMS | NTRST | NSYSRST | 0x400,
-	    0, 0, 0, 1000) != 0) {
+	    SIO_SET_BITMODE, 0x20b, 1, 0, 0, 1000) != 0) {
 		fprintf (stderr, "Can't set sync mpsse mode\n");
 		goto failed;
 	}
 
 	/* Ровно 500 нсек между выдачами. */
 	unsigned divisor = 0;
-	unsigned char latency_timer = 1;
+	unsigned char latency_timer = 5;
 
-	int baud = (divisor == 0) ? 3000000 :
-		(divisor == 1) ? 2000000 : 3000000 / divisor;
+	int baud = 3000000 / (divisor + 1);
 	if (debug)
 		fprintf (stderr, "MPSSE: speed %d samples/sec\n", baud);
 
@@ -522,34 +569,38 @@ failed:		usb_release_interface (a->usbdev, 0);
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
 	    SIO_SET_BAUD_RATE, divisor,
-	    0, 0, 0, 1000) != 0) {
+	    1, 0, 0, 1000) != 0) {
 		fprintf (stderr, "Can't set baud rate\n");
 		goto failed;
 	}
 
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
-	    SIO_SET_LATENCY_TIMER, latency_timer, 0, 0, 0, 1000) != 0) {
+	    SIO_SET_LATENCY_TIMER, latency_timer, 1, 0, 0, 1000) != 0) {
 		fprintf (stderr, "unable to set latency timer\n");
 		goto failed;
 	}
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_IN,
-	    SIO_GET_LATENCY_TIMER, 0, 0, (char*) &latency_timer, 1, 1000) != 1) {
+	    SIO_GET_LATENCY_TIMER, 0, 1, (char*) &latency_timer, 1, 1000) != 1) {
 		fprintf (stderr, "unable to get latency timer\n");
 		goto failed;
 	}
 	if (debug)
 		fprintf (stderr, "MPSSE: latency timer: %u usec\n", latency_timer);
 
+	mpsse_reset (a, 0, 0);
+
 	/* Reset the JTAG TAP controller. */
+	a->tdo_start = -1;
+	a->tdo_end = -1;
 	mpsse_step (a, 1);
 	mpsse_step (a, 1);
 	mpsse_step (a, 1);
 	mpsse_step (a, 1);	/* 5 cycles with TMS=1 */
 	mpsse_step (a, 1);
 	mpsse_step (a, 0);	/* TMS=0 to enter run-test/idle */
-	mpsse_send_recv (a);
+	mpsse_send_recv (a, 0);
 
 	/* Обязательные функции. */
 	a->adapter.name = "FT2232";
@@ -565,8 +616,7 @@ failed:		usb_release_interface (a->usbdev, 0);
 static int mpsse_test (adapter_t *adapter, int iterations)
 {
 	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
-	unsigned result, mask, tdi, last_bit = 0;
-	unsigned input_offset, pattern = 0;
+	unsigned result, mask, tdi, last_bit = 0, pattern = 0;
 
 	tap_instr (a, 4, TAP_BYPASS);	/* Enter BYPASS mode. */
 	mpsse_step (a, 1);		/* goto Select-DR-Scan */
@@ -576,14 +626,13 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
 
 		/* Pass the pattern through TDI-TDO. */
-		input_offset = a->output_len;
+		a->tdo_start = a->output_len;
 		for (mask=1; mask; mask<<=1) {
 			tdi = pattern & mask;
-			mpsse_write (a, 0, 0, tdi);
-			mpsse_write (a, 1, 0, tdi);
+			mpsse_write (a, 0, tdi);
 		}
-		mpsse_send_recv (a);
-		mpsse_read (a, input_offset, 32, (unsigned char*) &result);
+		a->tdo_end = a->output_len;
+		mpsse_send_recv (a, (unsigned char*) &result);
 
 		fprintf (stderr, "sent %08x received %08x\n",
 			pattern<<1 | last_bit, result);
@@ -596,7 +645,7 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 			mpsse_step (a, 1); /* 5 cycles with TMS=1 */
 			mpsse_step (a, 1);
 			mpsse_step (a, 0); /* TMS=0 to enter run-test/idle */
-			mpsse_send_recv (a);
+			mpsse_send_recv (a, 0);
 			return 0;
 		}
 		last_bit = pattern >> 31;
@@ -605,7 +654,7 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 	mpsse_step (a, 1);		/* goto Exit1-DR */
 	mpsse_step (a, 1);		/* goto Update-DR */
 	mpsse_step (a, 0);		/* Run-Test/idle => exec instr. */
-	mpsse_send_recv (a);
+	mpsse_send_recv (a, 0);
 	return 1;
 }
 
