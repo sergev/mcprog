@@ -35,6 +35,7 @@
 unsigned char memory_data [0x800000];	/* Code - up to 8 Mbytes */
 int memory_len;
 unsigned memory_base;
+unsigned checksum_addr;
 unsigned progress_count, progress_step;
 int verify_only;
 int debug;
@@ -171,6 +172,23 @@ int read_srec (char *filename, unsigned char *output)
 	}
 	fclose (fd);
 	return output_len;
+}
+
+/*
+ * Compute data checksum using rot13 algorithm.
+ * Link: http://vak.ru/doku.php/proj/hash/efficiency
+ */
+unsigned compute_checksum (unsigned char *data, unsigned bytes)
+{
+	unsigned hash = 0;
+
+	while (bytes-- > 0) {
+		hash += *data++;
+		hash -= (hash << 13) | (hash >> 19);
+		/* Two shifts are converted by GCC 4
+		 * to a single rotation instruction. */
+	}
+	return hash;
 }
 
 void print_symbols (char symbol, int cnt)
@@ -387,7 +405,7 @@ void do_probe ()
 
 void do_program ()
 {
-	unsigned addr;
+	unsigned addr, sum;
 	unsigned mfcode, devcode, bytes, width;
 	char mfname[40], devname[40];
 	int len;
@@ -395,6 +413,13 @@ void do_program ()
 
 	printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
 		memory_base + memory_len, memory_len);
+	if (checksum_addr) {
+		/* Store length and checksum. */
+		sum = compute_checksum (memory_data + memory_base, memory_len);
+		*(unsigned*) (memory_data + checksum_addr) = memory_len;
+		*(unsigned*) (memory_data + checksum_addr + 4) = sum;
+		printf ("Checksum: %08X at address %08X\n", sum, checksum_addr);
+	}
 
 	/* Open and detect the device. */
 	atexit (quit);
@@ -554,7 +579,7 @@ int main (int argc, char **argv)
 	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
 
-	while ((ch = getopt(argc, argv, "vDhrwb:")) != -1) {
+	while ((ch = getopt(argc, argv, "vDhrwb:s:")) != -1) {
 		switch (ch) {
 		case 'v':
 			++verify_only;
@@ -570,6 +595,9 @@ int main (int argc, char **argv)
 			continue;
 		case 'b':
 			board = optarg;
+			continue;
+		case 's':
+			checksum_addr = strtol (optarg, 0, 0);
 			continue;
 		case 'h':
 			break;
@@ -593,6 +621,7 @@ usage:		printf ("Probe:\n");
 		printf ("        -w         Memory write mode\n");
 		printf ("        -r         Read mode\n");
 		printf ("        -b name    Specify board name\n");
+		printf ("        -s addr    Compute and store checksum\n");
 		exit (0);
 	}
 	argc -= optind;

@@ -46,6 +46,7 @@ struct _adapter_t {
 adapter_t *adapter_open_usb (void);
 adapter_t *adapter_open_lpt (void);
 adapter_t *adapter_open_bitbang (void);
+adapter_t *adapter_open_mpsse (void);
 
 void mdelay (unsigned msec);
 extern int debug;

@@ -6,6 +6,7 @@ OBJS		= mcprog.o target.o conf.o
 OBJS		+= adapter-usb.o
 OBJS		+= adapter-lpt.o
 OBJS		+= adapter-bitbang.o
+OBJS		+= adapter-mpsse.o
 
 all:		mcprog adapter-bitbang
 

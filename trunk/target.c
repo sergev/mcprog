@@ -287,8 +287,10 @@ target_t *target_open ()
 	t->flash_base[0] = ~0;
 	t->flash_last[0] = ~0;
 
-	/* Ищем адаптер JTAG: USB, bitbang или LPT. */
+	/* Ищем адаптер JTAG: USB, bitbang, MPSSE или LPT. */
 	t->adapter = adapter_open_usb ();
+	if (! t->adapter)
+		t->adapter = adapter_open_mpsse ();
 	if (! t->adapter)
 		t->adapter = adapter_open_bitbang ();
 	if (! t->adapter)
