@@ -119,7 +119,7 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int bytes_to_
 
 }
 
-static unsigned long long mpsse_io (mpsse_adapter_t *a,
+static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	unsigned tms_prolog_nbits, unsigned tms_prolog,
 	unsigned tdi_nbits, unsigned long long tdi, int read_flag,
 	unsigned tms_epilog_nbits, unsigned tms_epilog)
@@ -137,26 +137,31 @@ static unsigned long long mpsse_io (mpsse_adapter_t *a,
 		output [bytes_to_write++] = 0x4b;
 		if (tms_prolog_nbits < 8) {
 			output [bytes_to_write++] = tms_prolog_nbits - 1;
-			output [bytes_to_write++] = tms_prolog /*| 0x80*/ & 0x7f;
+			output [bytes_to_write++] = tms_prolog | 0x80;
 		} else {
 			output [bytes_to_write++] = 6;
-			output [bytes_to_write++] = tms_prolog /*| 0x80*/ & 0x7f;
+			output [bytes_to_write++] = tms_prolog | 0x80;
 			output [bytes_to_write++] = 0x4b;
 			output [bytes_to_write++] = tms_prolog_nbits - 7;
-			output [bytes_to_write++] = (tms_prolog >> 7) /*| 0x80*/ & 0x7f;
+			output [bytes_to_write++] = (tms_prolog >> 7) | 0x80;
 		}
 	}
 	if (tdi_nbits > 0) {
 		/* Данные, от 1 до 64 бит. */
+		if (tms_epilog_nbits > 0) {
+			/* Последний бит надо сопровождать сигналом TMS=1. */
+			tdi_nbits--;
+		}
 		unsigned nbytes = tdi_nbits / 8;
 		unsigned nbits = tdi_nbits - nbytes*8;
+		if (read_flag) {
+			bytes_to_read += nbytes;
+			if (nbits > 0)
+				bytes_to_read++;
+		}
 		if (nbytes > 0) {
 			/* Целые байты. */
-			if (read_flag) {
-				output [bytes_to_write++] = 0x39;
-				bytes_to_read += nbytes;
-			} else
-				output [bytes_to_write++] = 0x19;
+			output [bytes_to_write++] = read_flag ? 0x39 : 0x19;
 			output [bytes_to_write++] = nbytes - 1;
 			output [bytes_to_write++] = (nbytes - 1) >> 8;
 			while (nbytes-- > 0) {
@@ -166,20 +171,25 @@ static unsigned long long mpsse_io (mpsse_adapter_t *a,
 		}
 		if (nbits > 0) {
 			/* Последний нецелый байт. */
-			if (read_flag) {
-				output [bytes_to_write++] = 0x3B;
-				bytes_to_read++;
-			} else
-				output [bytes_to_write++] = 0x1B;
+			output [bytes_to_write++] = read_flag ? 0x3B : 0x1B;
 			output [bytes_to_write++] = nbits - 1;
 			output [bytes_to_write++] = tdi;
+		}
+		if (tms_epilog_nbits > 0) {
+			/* Последний бит. */
+			tdi >>= nbits;
+			output [bytes_to_write++] = read_flag ? 0x6B : 0x4B;
+			output [bytes_to_write++] = 0;
+			output [bytes_to_write++] = tdi << 7 | 1;
+			if (read_flag)
+				bytes_to_read++;
 		}
 	}
 	if (tms_epilog_nbits > 0) {
 		/* Эпилог TMS, от 1 до 7 бит. */
 		output [bytes_to_write++] = 0x4b;
 		output [bytes_to_write++] = tms_epilog_nbits - 1;
-		output [bytes_to_write++] = tms_epilog /*| 0x80*/ & 0x7f;
+		output [bytes_to_write++] = tms_epilog | 0x80;
 	}
 
 	/* Шлём пакет. */
@@ -280,7 +290,7 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 	/* Reset the JTAG TAP controller.
 	 * After reset, the IDCODE register is always selected.
 	 * Read out 32 bits of data. */
-	idcode = mpsse_io (a, 9, 0x5f,	/* TMS 1-1-1-1-1-0-1-0-0 */
+	idcode = mpsse_send_recv (a, 9, 0x5f,	/* TMS 1-1-1-1-1-0-1-0-0 */
 		32, 0, 1, 1, 1);		/* данные, TMS 1 */
 	return idcode;
 }
@@ -308,7 +318,7 @@ static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 	unsigned long long data;
 	unsigned value;
 
-	data = mpsse_io (a, 3, 1,			/* TMS 1-0-0 */
+	data = mpsse_send_recv (a, 3, 1,		/* TMS 1-0-0 */
 		9 + reglen, reg | IRd_READ, 1, 1, 1);	/* данные, TMS 1 */
 	value = data >> 9;
 	if (debug) {
@@ -351,7 +361,7 @@ static void mpsse_oncd_write (adapter_t *adapter,
 	data = reg;
 	if (reglen > 0)
 		data |= (unsigned long long) value << 9;
-	mpsse_io (a, 3, 1,			/* TMS 1-0-0 */
+	mpsse_send_recv (a, 3, 1,		/* TMS 1-0-0 */
 		9 + reglen, data, 0, 1, 1);	/* данные, TMS 1 */
 }
 
@@ -365,13 +375,13 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 	unsigned old_ir, i, oscr;
 
 	/* Debug request. */
-	mpsse_io (a, 4, 3,				/* TMS 1-1-0-0 */
+	mpsse_send_recv (a, 4, 3,			/* TMS 1-1-0-0 */
 		4, TAP_DEBUG_REQUEST, 0, 1, 1);		/* данные, TMS 1 */
 
 	/* Wait while processor enters debug mode. */
 	i = 0;
 	for (;;) {
-		old_ir = mpsse_io (a, 4, 3,		/* TMS 1-1-0-0 */
+		old_ir = mpsse_send_recv (a, 4, 3,	/* TMS 1-1-0-0 */
 			4, TAP_DEBUG_ENABLE, 1, 1, 1);	/* данные, TMS 1 */
 		if (old_ir == 5)
 			break;
@@ -477,7 +487,7 @@ failed:		usb_release_interface (a->usbdev, 0);
 	bulk_write (a, (unsigned char*) "\x85", 1);
 
 	/* Reset the JTAG TAP controller. */
-	mpsse_io (a, 6, 31, 0, 0, 0, 0, 0);	/* TMS 1-1-1-1-1-0 */
+	mpsse_send_recv (a, 6, 31, 0, 0, 0, 0, 0);	/* TMS 1-1-1-1-1-0 */
 
 	/* Обязательные функции. */
 	a->adapter.name = "FT2232";
@@ -496,25 +506,26 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 	unsigned result, last_bit = 0, pattern = 0;
 
 	/* Enter BYPASS mode. */
-	mpsse_io (a, 4, 3,			/* TMS 1-1-0-0 */
+	mpsse_send_recv (a, 4, 3,		/* TMS 1-1-0-0 */
 		4, TAP_BYPASS, 0, 4, 3);	/* данные, TMS 1-1-0-0 */
 	do {
 		pattern = 1664525ul * pattern + 1013904223ul; /* simple PRNG */
 
 		/* Pass the pattern through TDI-TDO. */
-		result = mpsse_io (a, 0, 0, 32, pattern, 1, 0, 0);
+		result = mpsse_send_recv (a, 0, 0, 32, pattern, 1, 0, 0);
 		fprintf (stderr, "sent %08x received %08x\n",
 			pattern<<1 | last_bit, result);
 		if ((result & 1) != last_bit ||
 		    (result >> 1) != (pattern & 0x7FFFFFFFul)) {
-			/* Reset the JTAG TAP controller. */
-			mpsse_io (a, 6, 31, 0, 0, 0, 0, 0);	/* TMS 1-1-1-1-1-0 */
+			/* Reset the JTAG TAP controller:
+			 * TMS 1-1-1-1-1-0. */
+			mpsse_send_recv (a, 6, 31, 0, 0, 0, 0, 0);
 			return 0;
 		}
 		last_bit = pattern >> 31;
 	} while (--iterations > 0);
 
-	mpsse_io (a, 3, 3, 0, 0, 0, 0, 0);		/* TMS 1-1-0 */
+	mpsse_send_recv (a, 3, 3, 0, 0, 0, 0, 0);	/* TMS 1-1-0 */
 	return 1;
 }
 
