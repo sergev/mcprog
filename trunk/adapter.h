@@ -1,6 +1,7 @@
 /*
  * Обобщённый JTAG-адаптер.
  */
+
 #include <stdarg.h>
 
 typedef struct _adapter_t adapter_t;
