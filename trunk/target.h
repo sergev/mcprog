@@ -32,3 +32,5 @@ void target_write_nwords (target_t *t, unsigned nwords, ...);
 void target_write_byte (target_t *t, unsigned addr, unsigned data);
 void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
 	unsigned addr2, unsigned data2);
+int check_clean (target_t *t, unsigned addr);
+

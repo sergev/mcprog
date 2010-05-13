@@ -56,6 +56,7 @@ struct _target_t {
 #define ID_SST			0x00BF00BF
 #define ID_MILANDR		0x01010101
 #define ID_ANGSTREM		0xBFBFBFBF
+#define ID_SPANSION		0x01010101
 
 /* Идентификатор микросхемы flash. */
 #define ID_29LV800_B		0x225b225b
@@ -64,6 +65,7 @@ struct _target_t {
 #define ID_39VF6401_B		0x236d236d
 #define ID_1636PP2Y		0xc8c8c8c8
 #define ID_1638PP1		0x07070707
+#define ID_S29AL032D		0x000000f9
 
 /* Команды flash. */
 #define FLASH_CMD16_AA		0x00AA00AA
@@ -384,7 +386,7 @@ void target_flash_configure (target_t *t, unsigned first, unsigned last)
 }
 
 /*
- * Iterate trough all flash regions.
+ * Iterate through all flash regions.
  */
 unsigned target_flash_next (target_t *t, unsigned prev, unsigned *last)
 {
@@ -449,9 +451,9 @@ int target_flash_detect (target_t *t, unsigned addr,
 	unsigned base;
 
 	base = compute_base (t, addr);
-	for (count=0; count<4*5; ++count) {
+	for (count=0; count<4*6; ++count) {
 		/* Try both 32 and 64 bus width.*/
-		switch (count % 5) {
+		switch (count % 6) {
 		case 0:
 			/* Two 16-bit flash chips. */
 			t->flash_width = 32;
@@ -528,6 +530,21 @@ int target_flash_detect (target_t *t, unsigned addr,
 			t->flash_devid_offset = 4;
 			t->flash_delay = 20;
 			break;
+		case 5:
+			/* One 8-bit flash chip. */
+			t->flash_width = 8;
+			t->flash_addr_odd = 0xAAA;
+			t->flash_addr_even = 0x555;
+			t->flash_cmd_aa = FLASH_CMD8_AA;
+			t->flash_cmd_55 = FLASH_CMD8_55;
+			t->flash_cmd_10 = FLASH_CMD8_10;
+			t->flash_cmd_20 = FLASH_CMD8_20;
+			t->flash_cmd_80 = FLASH_CMD8_80;
+			t->flash_cmd_90 = FLASH_CMD8_90;
+			t->flash_cmd_a0 = FLASH_CMD8_A0;
+			t->flash_cmd_f0 = FLASH_CMD8_F0;
+			t->flash_devid_offset = 0;
+			break;
 		default:
 			continue;
 		}
@@ -538,9 +555,13 @@ int target_flash_detect (target_t *t, unsigned addr,
 			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
 			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_90);
 			*mf = target_read_word (t, base);
-			*dev = (unsigned char) (*mf >> 8);
-			*mf = (unsigned char) *mf;
-
+			if ((count%6)==5) {
+				*dev = (unsigned char) (*mf >> 16);
+				*mf = (unsigned char) *mf;
+			} else { 
+				*dev = (unsigned char) (*mf >> 8);
+				*mf = (unsigned char) *mf;
+			};
 			/* Stop read ID mode. */
 			target_write_byte (t, base, t->flash_cmd_f0);
 
@@ -607,6 +628,10 @@ int target_flash_detect (target_t *t, unsigned addr,
 			strcpy (devname, "1636PP2Y");
 			t->flash_bytes = 2*1024*1024;
 			goto success;
+		case ID_S29AL032D:
+			strcpy (devname, "S29AL032D");
+			t->flash_bytes = 4*1024*1024;
+			goto success;
 		}
 	}
 	/* printf ("Unknown flash id = %08X\n", *dev); */
@@ -629,10 +654,12 @@ success:
 	case ID_ANGSTREM:
 		strcpy (mfname, "Angstrem");
 		break;
+	/* Milandr & Spansion mf code =0x01 */
 	case (unsigned char) ID_MILANDR:
 		if (t->flash_width != 8)
 			goto unknown_mfr;
-		strcpy (mfname, "Milandr");
+		if (*dev==ID_S29AL032D) strcpy (mfname, "Spansion");
+		else strcpy (mfname, "Milandr");
 		break;
 	default:
 unknown_mfr:	sprintf (mfname, "<%08X>", *mf);
@@ -962,3 +989,32 @@ void target_program_block (target_t *t, unsigned addr,
 		break;
 	}
 }
+
+#define BLOCK_MEM	16*1024
+
+int check_clean (target_t *t, unsigned addr)
+{
+	unsigned base, offset, i, sz, end, n;
+	unsigned *mem;
+
+	n=0;
+	mem = malloc(sizeof(unsigned)*BLOCK_MEM);
+	/* Check chip clean. */
+	base = compute_base (t, addr);
+	end = base + t->flash_bytes;
+	for (offset=0;(base+offset)<end;offset+=sizeof(unsigned)*BLOCK_MEM) {
+		if ((sizeof(unsigned)*BLOCK_MEM+offset)<end) sz = BLOCK_MEM;
+		else sz = (end-offset)/sizeof(unsigned);
+		target_read_block(t, base+offset, sz, mem);
+		for (i=0;i<sz;i++) {
+			if (mem[i] != 0xffffffff) {
+				free(mem);
+				return(0);
+			};
+		};
+	};
+	free(mem);
+	printf ("Clean flash: %08X\n", base);
+	return(1);
+};
+

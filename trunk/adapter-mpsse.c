@@ -13,6 +13,7 @@
  * либо (по вашему желанию) любой более поздней версии. Подробности
  * смотрите в прилагаемом файле 'COPYING.txt'.
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
