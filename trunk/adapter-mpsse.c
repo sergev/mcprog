@@ -127,23 +127,24 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	int bytes_to_write, bytes_to_read, bytes_read, n, i;
 	unsigned char output [64];
 	unsigned char reply [64];
-	unsigned long long data;
+	unsigned long long data = 0, fix_high_bit = 0;
 
 	/* Формируем пакет команд MPSSE. */
 	bytes_to_write = 0;
 	bytes_to_read = 0;
 	if (tms_prolog_nbits > 0) {
-		/* Пролог TMS, от 1 до 14 бит. */
+		/* Пролог TMS, от 1 до 14 бит.
+		 * 4b - Clock Data to TMS Pin (no Read) */
 		output [bytes_to_write++] = 0x4b;
 		if (tms_prolog_nbits < 8) {
 			output [bytes_to_write++] = tms_prolog_nbits - 1;
-			output [bytes_to_write++] = tms_prolog | 0x80;
+			output [bytes_to_write++] = tms_prolog /*| 0x80*/;
 		} else {
-			output [bytes_to_write++] = 6;
-			output [bytes_to_write++] = tms_prolog | 0x80;
+			output [bytes_to_write++] = 7 - 1;
+			output [bytes_to_write++] = tms_prolog /*| 0x80*/;
 			output [bytes_to_write++] = 0x4b;
-			output [bytes_to_write++] = tms_prolog_nbits - 7;
-			output [bytes_to_write++] = (tms_prolog >> 7) | 0x80;
+			output [bytes_to_write++] = tms_prolog_nbits - 7 - 1;
+			output [bytes_to_write++] = (tms_prolog >> 7) /*| 0x80*/;
 		}
 	}
 	if (tdi_nbits > 0) {
@@ -160,7 +161,9 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 				bytes_to_read++;
 		}
 		if (nbytes > 0) {
-			/* Целые байты. */
+			/* Целые байты.
+			 * 39 - Clock Data Bytes In and Out LSB First
+			 * 19 - Clock Data Bytes Out LSB First (no Read) */
 			output [bytes_to_write++] = read_flag ? 0x39 : 0x19;
 			output [bytes_to_write++] = nbytes - 1;
 			output [bytes_to_write++] = (nbytes - 1) >> 8;
@@ -170,26 +173,36 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			}
 		}
 		if (nbits > 0) {
-			/* Последний нецелый байт. */
-			output [bytes_to_write++] = read_flag ? 0x3B : 0x1B;
+			/* Последний нецелый байт.
+			 * 3b - Clock Data Bits In and Out LSB First
+			 * 1b - Clock Data Bits Out LSB First (no Read) */
+			output [bytes_to_write++] = read_flag ? 0x3b : 0x1b;
 			output [bytes_to_write++] = nbits - 1;
 			output [bytes_to_write++] = tdi;
 		}
 		if (tms_epilog_nbits > 0) {
-			/* Последний бит. */
+			/* Последний бит.
+			 * 6b - Clock Data to TMS Pin with Read
+			 * 4b - Clock Data to TMS Pin (no Read) */
 			tdi >>= nbits;
-			output [bytes_to_write++] = read_flag ? 0x6B : 0x4B;
-			output [bytes_to_write++] = 0;
-			output [bytes_to_write++] = tdi << 7 | 1;
-			if (read_flag)
+			output [bytes_to_write++] = read_flag ? 0x6b : 0x4b;
+			output [bytes_to_write++] = 1 - 1;
+			output [bytes_to_write++] = tdi << 7 | 3;
+			if (read_flag) {
+				/* Последний бит придёт в следующем байте.
+				 * Вычисляем маску для коррекции. */
+				fix_high_bit = 1 << (bytes_to_read * 8);
 				bytes_to_read++;
+			}
+			tdi_nbits++;
 		}
 	}
 	if (tms_epilog_nbits > 0) {
-		/* Эпилог TMS, от 1 до 7 бит. */
+		/* Эпилог TMS, от 1 до 7 бит.
+		 * 4b - Clock Data to TMS Pin (no Read) */
 		output [bytes_to_write++] = 0x4b;
 		output [bytes_to_write++] = tms_epilog_nbits - 1;
-		output [bytes_to_write++] = tms_epilog | 0x80;
+		output [bytes_to_write++] = tms_epilog /*| 0x80*/;
 	}
 
 	/* Шлём пакет. */
@@ -207,14 +220,19 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 		if (n != bytes_to_read + 2)
 			fprintf (stderr, "usb bulk read %d bytes of %d\n",
 				n, bytes_to_read - bytes_read + 2);
-		else if (debug)
-			fprintf (stderr, "usb bulk read %d bytes\n", n);
+		/*else if (debug)
+			fprintf (stderr, "usb bulk read %d bytes\n", n);*/
 
 		if (n > 2) {
 			/* Copy data. */
 			memcpy ((char*)&data + bytes_read, reply + 2, n - 2);
 			bytes_read += n - 2;
 		}
+	}
+	if (data & fix_high_bit) {
+		/* Корректируем старший бит принятых данных. */
+		data &= ~fix_high_bit;
+		data |= 1 << (tdi_nbits - 1);
 	}
 	if (debug && bytes_to_read > 0) {
 		fprintf (stderr, "mpsse_send_recv returned %d bytes:", bytes_to_read);
@@ -286,12 +304,21 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 {
 	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
 	unsigned idcode;
-
+#if 1
 	/* Reset the JTAG TAP controller.
 	 * After reset, the IDCODE register is always selected.
 	 * Read out 32 bits of data. */
 	idcode = mpsse_send_recv (a, 9, 0x5f,	/* TMS 1-1-1-1-1-0-1-0-0 */
-		32, 0, 1, 1, 1);		/* данные, TMS 1 */
+		33, 0, 1, 1, 1);		/* данные, TMS 1 */
+#else
+	/* Reset the JTAG TAP controller. */
+	mpsse_send_recv (a, 6, 31, 0, 0, 0, 0, 0);	/* TMS 1-1-1-1-1-0 */
+
+	mpsse_send_recv (a, 4, 3,			/* TMS 1-1-0-0 */
+		4, TAP_IDCODE, 0, 1, 1);		/* данные, TMS 1 */
+	idcode = mpsse_send_recv (a, 3, 1,		/* TMS 1-0-0 */
+		32, 0, 1, 1, 1);			/* данные, TMS 1 */
+#endif
 	return idcode;
 }
 
