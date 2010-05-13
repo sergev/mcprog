@@ -24,7 +24,7 @@
 #include "conf.h"
 
 #define PROGNAME	"Programmer for Elvees Multicore CPU"
-#define VERSION		"1.7"
+#define VERSION		"1.8"
 #define BLOCKSZ		1024
 #define DEFAULT_ADDR	0xBFC00000
 
@@ -37,6 +37,7 @@ int memory_len;
 unsigned memory_base;
 unsigned checksum_addr;
 unsigned progress_count, progress_step;
+int check_erase;
 int verify_only;
 int debug;
 target_t *target;
@@ -80,7 +81,7 @@ int read_bin (char *filename, unsigned char *output)
 	}
 	output_len = fread (output, 1, sizeof (memory_data), fd);
 	fclose (fd);
-	if (output_len <= 0) {
+	if (output_len < 0) {
 		fprintf (stderr, "%s: read error\n", filename);
 		exit (1);
 	}
@@ -335,6 +336,15 @@ void configure_parameter (char *section, char *param, char *value)
 		word = strtol (value, 0, 0);
 		target_write_word (target, 0x182F100C, word);
 
+	} else if (strcasecmp (param, "cr_pll") == 0) {
+		sscanf(value,"%x",&word);
+		target_write_word (target, 0x182F4000, word);
+//printf("CR_PLL=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4000));
+
+	} else if (strcasecmp (param, "clk_en") == 0) {
+		sscanf(value,"%x",&word);
+		target_write_word (target, 0x182F4004, word);
+//printf("CLK_EN=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4004));
 	} else if (strncasecmp (param, "flash ", 6) == 0) {
 		if (sscanf (value, "%i-%i", &first, &last) != 2) {
 			fprintf (stderr, "%s: incorrect value for parameter `%s'\n",
@@ -444,7 +454,8 @@ void do_program ()
 
 	if (! verify_only) {
 		/* Erase flash. */
-		target_erase (target, memory_base);
+		if (!check_erase||!check_clean(target, memory_base))
+			target_erase (target, memory_base);
 	}
 	for (progress_step=1; ; progress_step<<=1) {
 		len = 1 + memory_len / progress_step / BLOCKSZ;
@@ -579,8 +590,11 @@ int main (int argc, char **argv)
 	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
 
-	while ((ch = getopt(argc, argv, "vDhrwb:s:")) != -1) {
+	while ((ch = getopt(argc, argv, "vDhrwb:s:c")) != -1) {
 		switch (ch) {
+		case 'c':
+			++check_erase;
+			continue;
 		case 'v':
 			++verify_only;
 			continue;
@@ -617,6 +631,7 @@ usage:		printf ("Probe:\n");
 		printf ("        file.bin   Code file in binary format\n");
 		printf ("        address    Address of flash memory, default 0x%08X\n",
 			DEFAULT_ADDR);
+		printf ("        -c         Check clean\n");
 		printf ("        -v         Verify only\n");
 		printf ("        -w         Memory write mode\n");
 		printf ("        -r         Read mode\n");
@@ -626,6 +641,7 @@ usage:		printf ("Probe:\n");
 	}
 	argc -= optind;
 	argv += optind;
+
 	switch (argc) {
 	case 0:
 		do_probe ();
