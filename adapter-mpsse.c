@@ -212,7 +212,6 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			 * 6b - Clock Data to TMS Pin with Read
 			 * 4b - Clock Data to TMS Pin (no Read) */
 			tdi_nbits++;
-			tdi >>= 1;
 			output [bytes_to_write++] = read_flag ?
 				(WTMS + RTDO + BITMODE + CLKWNEG + LSB) :
 				(WTMS + BITMODE + CLKWNEG + LSB);
@@ -252,8 +251,12 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			if (n != bytes_to_read + 2)
 				fprintf (stderr, "usb bulk read %d bytes of %d\n",
 					n, bytes_to_read - bytes_read + 2);
-			/*else
-				fprintf (stderr, "usb bulk read %d bytes\n", n);*/
+			else {
+				fprintf (stderr, "usb bulk read %d bytes:", n);
+				for (i=0; i<n; i++)
+					fprintf (stderr, "%c%02x", i ? '-' : ' ', reply[i]);
+				fprintf (stderr, "\n");
+			}
 		}
 		if (n > 2) {
 			/* Copy data. */
@@ -263,19 +266,19 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	}
 	if (tdi_nbits > 0) {
 		fix_high_bit &= data;
-		data &= (1ULL << (tdi_nbits - 1)) - 1;
 		unsigned high_bits = (tdi_nbits - 1) & 7;
 		if (high_bits) {
 			/* Корректируем старший байт принятых данных. */
 			unsigned long long high_byte = high_byte_mask &
 				((data & high_byte_mask) >> (8-high_bits));
 			data = (data & ~high_byte_mask) | high_byte;
-			/*fprintf (stderr, "Corrected %08llx -> %08llx\n", high_byte_mask, high_byte);*/
+/*			fprintf (stderr, "Corrected byte %08llx -> %08llx\n", high_byte_mask, high_byte);*/
 		}
+		data &= (1ULL << (tdi_nbits - 1)) - 1;
 		if (fix_high_bit) {
 			/* Корректируем старший бит принятых данных. */
 			data |= 1ULL << (tdi_nbits - 1);
-			/*fprintf (stderr, "Corrected %08llx -> %08x\n", fix_high_bit, 1 << (tdi_nbits - 1));*/
+/*			fprintf (stderr, "Corrected bit %08llx -> %08x\n", fix_high_bit, 1 << (tdi_nbits - 1));*/
 		}
 	}
 
@@ -317,8 +320,9 @@ static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst, int led)
 	output [2] = high_direction;
 
 	bulk_write (a, output, 3);
-	/*fprintf (stderr, "mpsse_reset (trst=%d, sysrst=%d) high_output=0x%2.2x, high_direction: 0x%2.2x\n",
-		trst, sysrst, high_output, high_direction);*/
+	if (debug)
+		fprintf (stderr, "mpsse_reset (trst=%d, sysrst=%d) high_output=0x%2.2x, high_direction: 0x%2.2x\n",
+			trst, sysrst, high_output, high_direction);
 }
 
 static void mpsse_speed (mpsse_adapter_t *a, int divisor)

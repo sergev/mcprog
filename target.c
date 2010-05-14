@@ -558,7 +558,7 @@ int target_flash_detect (target_t *t, unsigned addr,
 			if ((count%6)==5) {
 				*dev = (unsigned char) (*mf >> 16);
 				*mf = (unsigned char) *mf;
-			} else { 
+			} else {
 				*dev = (unsigned char) (*mf >> 8);
 				*mf = (unsigned char) *mf;
 			};
@@ -744,6 +744,7 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 	if ((bad & word) != word) {
 		fprintf (stderr, "target: cannot rewrite word at %x\n",
 			addr);
+//fprintf (stderr, "bad = %08x, expected = %08x\n", bad, word);
 		exit (1);
 	}
 
@@ -1017,4 +1018,3 @@ int check_clean (target_t *t, unsigned addr)
 	printf ("Clean flash: %08X\n", base);
 	return(1);
 };
-

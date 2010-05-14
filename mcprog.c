@@ -19,6 +19,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <signal.h>
 #include <sys/time.h>
 #include "target.h"
 #include "conf.h"
@@ -288,6 +289,12 @@ void quit (void)
 		free (target);
 		target = 0;
 	}
+}
+
+void interrupted (int signum)
+{
+	quit();
+	_exit (-1);
 }
 
 void configure_parameter (char *section, char *param, char *value)
@@ -589,6 +596,9 @@ int main (int argc, char **argv)
 	setvbuf (stderr, (char *)NULL, _IOLBF, 0);
 	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
+	signal (SIGINT, interrupted);
+	signal (SIGHUP, interrupted);
+	signal (SIGTERM, interrupted);
 
 	while ((ch = getopt(argc, argv, "vDhrwb:s:c")) != -1) {
 		switch (ch) {
