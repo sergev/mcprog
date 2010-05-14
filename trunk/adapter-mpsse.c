@@ -84,6 +84,15 @@ typedef struct {
 #define	IRd_FLUSH_PIPE	0x40	/* for EnGO: instruction pipe changed */
 #define	IRd_STEP_1CLK	0x80	/* for step mode: run for 1 clock only */
 
+/* Команды MPSSE. */
+#define CLKWNEG	0x01
+#define BITMODE	0x02
+#define CLKRNEG	0x04
+#define LSB	0x08
+#define WTDI	0x10
+#define RTDO	0x20
+#define WTMS	0x40
+
 static char *oncd_regname[] = {
 	"OSCR",		"OMBC",		"OMLR0",	"OMLR1",
 	"OBCR",		"IRdec",	"OTC",		"PCdec",
@@ -136,16 +145,16 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	if (tms_prolog_nbits > 0) {
 		/* Пролог TMS, от 1 до 14 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
-		output [bytes_to_write++] = 0x4b;
+		output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
 		if (tms_prolog_nbits < 8) {
 			output [bytes_to_write++] = tms_prolog_nbits - 1;
-			output [bytes_to_write++] = tms_prolog /*| 0x80*/;
+			output [bytes_to_write++] = tms_prolog;
 		} else {
 			output [bytes_to_write++] = 7 - 1;
-			output [bytes_to_write++] = tms_prolog /*| 0x80*/;
-			output [bytes_to_write++] = 0x4b;
+			output [bytes_to_write++] = tms_prolog & 0x7f;
+			output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
 			output [bytes_to_write++] = tms_prolog_nbits - 7 - 1;
-			output [bytes_to_write++] = (tms_prolog >> 7) /*| 0x80*/;
+			output [bytes_to_write++] = tms_prolog >> 7;
 		}
 	}
 	if (tdi_nbits > 0) {
@@ -165,7 +174,9 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			/* Целые байты.
 			 * 39 - Clock Data Bytes In and Out LSB First
 			 * 19 - Clock Data Bytes Out LSB First (no Read) */
-			output [bytes_to_write++] = read_flag ? 0x39 : 0x19;
+			output [bytes_to_write++] = read_flag ?
+				(WTDI + RTDO + CLKWNEG + LSB) :
+				(WTDI + CLKWNEG + LSB);
 			output [bytes_to_write++] = nbytes - 1;
 			output [bytes_to_write++] = (nbytes - 1) >> 8;
 			while (nbytes-- > 0) {
@@ -177,16 +188,21 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			/* Последний нецелый байт.
 			 * 3b - Clock Data Bits In and Out LSB First
 			 * 1b - Clock Data Bits Out LSB First (no Read) */
-			output [bytes_to_write++] = read_flag ? 0x3b : 0x1b;
+			output [bytes_to_write++] = read_flag ?
+				(WTDI + RTDO + BITMODE + CLKWNEG + LSB) :
+				(WTDI + BITMODE + CLKWNEG + LSB);
 			output [bytes_to_write++] = nbits - 1;
 			output [bytes_to_write++] = tdi;
+			tdi >>= nbits - 1;
 		}
 		if (tms_epilog_nbits > 0) {
 			/* Последний бит.
 			 * 6b - Clock Data to TMS Pin with Read
 			 * 4b - Clock Data to TMS Pin (no Read) */
 			tdi >>= nbits;
-			output [bytes_to_write++] = read_flag ? 0x6b : 0x4b;
+			output [bytes_to_write++] = read_flag ?
+				(WTMS + RTDO + BITMODE + CLKWNEG + LSB) :
+				(WTMS + BITMODE + CLKWNEG + LSB);
 			output [bytes_to_write++] = 1 - 1;
 			output [bytes_to_write++] = tdi << 7 | 3;
 			if (read_flag) {
@@ -201,7 +217,7 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	if (tms_epilog_nbits > 0) {
 		/* Эпилог TMS, от 1 до 7 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
-		output [bytes_to_write++] = 0x4b;
+		output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
 		output [bytes_to_write++] = tms_epilog_nbits - 1;
 		output [bytes_to_write++] = tms_epilog /*| 0x80*/;
 	}
@@ -309,8 +325,8 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 	/* Reset the JTAG TAP controller.
 	 * After reset, the IDCODE register is always selected.
 	 * Read out 32 bits of data. */
-	idcode = mpsse_send_recv (a, 9, 0x5f,	/* TMS 1-1-1-1-1-0-1-0-0 */
-		33, 0, 1, 1, 1);		/* данные, TMS 1 */
+	idcode = mpsse_send_recv (a, 9, 0x5f,		/* TMS 1-1-1-1-1-0-1-0-0 */
+		32, 0, 1, 1, 1);			/* данные, TMS 1 */
 #else
 	/* Reset the JTAG TAP controller. */
 	mpsse_send_recv (a, 6, 31, 0, 0, 0, 0, 0);	/* TMS 1-1-1-1-1-0 */
@@ -617,7 +633,7 @@ usage:		printf ("Test for FT232R JTAG adapter.\n");
 
 		} else if (strcmp ("idcode", argv[0]) == 0) {
 			int i;
-			for (i=0; i<2; ++i)
+			for (i=0; i<20000000; ++i)
 				printf ("IDCODE = %08x\n", mpsse_get_idcode (adapter));
 		} else {
 			mpsse_close (adapter);
