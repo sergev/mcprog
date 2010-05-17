@@ -31,6 +31,10 @@ typedef struct {
 
 	/* Доступ к устройству через libusb. */
 	usb_dev_handle *usbdev;
+
+	/* Буфер для посылаемого пакета MPSSE. */
+	unsigned char output [256];
+	int bytes_to_write;
 } mpsse_adapter_t;
 
 /*
@@ -107,34 +111,47 @@ static char *oscr_bitname[] = {
 	"VBO",		"NFEXP",	"WP0",		"WP1",
 };
 
-static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int bytes_to_write)
+/*
+ * Посылка пакета данных USB-устройству.
+ */
+static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
 {
 	int bytes_written, i;
 
 	if (debug) {
-		fprintf (stderr, "usb bulk write %d bytes:", bytes_to_write);
-		for (i=0; i<bytes_to_write; i++)
+		fprintf (stderr, "usb bulk write %d bytes:", nbytes);
+		for (i=0; i<nbytes; i++)
 			fprintf (stderr, "%c%02x", i ? '-' : ' ', output[i]);
 		fprintf (stderr, "\n");
 	}
 	bytes_written = usb_bulk_write (a->usbdev, IN_EP, (char*) output,
-		bytes_to_write, 1000);
+		nbytes, 1000);
 	if (bytes_written < 0) {
 		fprintf (stderr, "usb bulk write failed\n");
 		exit (-1);
 	}
-	if (bytes_written != bytes_to_write)
+	if (bytes_written != nbytes)
 		fprintf (stderr, "usb bulk written %d bytes of %d",
-			bytes_written, bytes_to_write);
+			bytes_written, nbytes);
 
+}
+
+/*
+ * Если в выходном буфере есть накопленные данные -
+ * отправка их устройству.
+ */
+static void mpsse_flush_output (mpsse_adapter_t *a)
+{
+	if (a->bytes_to_write > 0)
+		bulk_write (a, a->output, a->bytes_to_write);
+	a->bytes_to_write = 0;
 }
 
 static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	unsigned tms_prolog_nbits, unsigned tms_prolog,
 	unsigned tdi_nbits, unsigned long long tdi, int read_flag)
 {
-	int bytes_to_write, bytes_to_read, bytes_read, n, i;
-	unsigned char output [64];
+	int bytes_to_read, bytes_read, n, i;
 	unsigned char reply [64];
 	unsigned long long data = 0, fix_high_bit = 0;
 	unsigned long long high_byte_mask = 0;
@@ -149,23 +166,26 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 		tms_epilog = 1;
 		tms_epilog_nbits = 1;
 	}
+	/* Проверяем, есть ли место в выходном буфере.
+	 * Максимальный размер одного пакета - 23 байта (6+8+3+3+3). */
+	if (a->bytes_to_write > sizeof (a->output) - 23)
+		mpsse_flush_output (a);
 
 	/* Формируем пакет команд MPSSE. */
-	bytes_to_write = 0;
 	bytes_to_read = 0;
 	if (tms_prolog_nbits > 0) {
 		/* Пролог TMS, от 1 до 14 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
-		output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
+		a->output [a->bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
 		if (tms_prolog_nbits < 8) {
-			output [bytes_to_write++] = tms_prolog_nbits - 1;
-			output [bytes_to_write++] = tms_prolog;
+			a->output [a->bytes_to_write++] = tms_prolog_nbits - 1;
+			a->output [a->bytes_to_write++] = tms_prolog;
 		} else {
-			output [bytes_to_write++] = 7 - 1;
-			output [bytes_to_write++] = tms_prolog & 0x7f;
-			output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
-			output [bytes_to_write++] = tms_prolog_nbits - 7 - 1;
-			output [bytes_to_write++] = tms_prolog >> 7;
+			a->output [a->bytes_to_write++] = 7 - 1;
+			a->output [a->bytes_to_write++] = tms_prolog & 0x7f;
+			a->output [a->bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
+			a->output [a->bytes_to_write++] = tms_prolog_nbits - 7 - 1;
+			a->output [a->bytes_to_write++] = tms_prolog >> 7;
 		}
 	}
 	if (tdi_nbits > 0) {
@@ -185,13 +205,13 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			/* Целые байты.
 			 * 39 - Clock Data Bytes In and Out LSB First
 			 * 19 - Clock Data Bytes Out LSB First (no Read) */
-			output [bytes_to_write++] = read_flag ?
+			a->output [a->bytes_to_write++] = read_flag ?
 				(WTDI + RTDO + CLKWNEG + LSB) :
 				(WTDI + CLKWNEG + LSB);
-			output [bytes_to_write++] = nbytes - 1;
-			output [bytes_to_write++] = (nbytes - 1) >> 8;
+			a->output [a->bytes_to_write++] = nbytes - 1;
+			a->output [a->bytes_to_write++] = (nbytes - 1) >> 8;
 			while (nbytes-- > 0) {
-				output [bytes_to_write++] = tdi;
+				a->output [a->bytes_to_write++] = tdi;
 				tdi >>= 8;
 			}
 		}
@@ -199,11 +219,11 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			/* Последний нецелый байт.
 			 * 3b - Clock Data Bits In and Out LSB First
 			 * 1b - Clock Data Bits Out LSB First (no Read) */
-			output [bytes_to_write++] = read_flag ?
+			a->output [a->bytes_to_write++] = read_flag ?
 				(WTDI + RTDO + BITMODE + CLKWNEG + LSB) :
 				(WTDI + BITMODE + CLKWNEG + LSB);
-			output [bytes_to_write++] = nbits - 1;
-			output [bytes_to_write++] = tdi;
+			a->output [a->bytes_to_write++] = nbits - 1;
+			a->output [a->bytes_to_write++] = tdi;
 			tdi >>= nbits;
 			high_byte_mask = 0xffULL << (bytes_to_read - 1) * 8;
 		}
@@ -212,11 +232,11 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			 * 6b - Clock Data to TMS Pin with Read
 			 * 4b - Clock Data to TMS Pin (no Read) */
 			tdi_nbits++;
-			output [bytes_to_write++] = read_flag ?
+			a->output [a->bytes_to_write++] = read_flag ?
 				(WTMS + RTDO + BITMODE + CLKWNEG + LSB) :
 				(WTMS + BITMODE + CLKWNEG + LSB);
-			output [bytes_to_write++] = 1;
-			output [bytes_to_write++] = tdi << 7 | 1 | tms_epilog << 1;
+			a->output [a->bytes_to_write++] = 1;
+			a->output [a->bytes_to_write++] = tdi << 7 | 1 | tms_epilog << 1;
 			tms_epilog_nbits--;
 			tms_epilog >>= 1;
 			if (read_flag) {
@@ -230,13 +250,18 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 	if (tms_epilog_nbits > 0) {
 		/* Эпилог TMS, от 1 до 7 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
-		output [bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
-		output [bytes_to_write++] = tms_epilog_nbits - 1;
-		output [bytes_to_write++] = tms_epilog;
+		a->output [a->bytes_to_write++] = WTMS + BITMODE + CLKWNEG + LSB;
+		a->output [a->bytes_to_write++] = tms_epilog_nbits - 1;
+		a->output [a->bytes_to_write++] = tms_epilog;
 	}
 
+	/* Если не требуется получение данных - оставляем сформированный
+	 * пакет в буфере. */
+	if (! read_flag)
+		return 0;
+
 	/* Шлём пакет. */
-	bulk_write (a, output, bytes_to_write);
+	mpsse_flush_output (a);
 
 	/* Получаем ответ. */
 	bytes_read = 0;
@@ -340,6 +365,7 @@ static void mpsse_close (adapter_t *adapter)
 {
 	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
 
+	mpsse_flush_output (a);
 	mpsse_reset (a, 0, 0, 0);
 	usb_release_interface (a->usbdev, 0);
 	usb_close (a->usbdev);
@@ -461,6 +487,39 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
 }
 
+static void mpsse_program_block32 (adapter_t *adapter,
+	unsigned nwords, unsigned base, unsigned addr, unsigned *data,
+	unsigned addr_odd, unsigned addr_even,
+	unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
+{
+	/* Allow memory access */
+	unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+
+	while (nwords-- > 0) {
+		mpsse_oncd_write (adapter, base + addr_odd, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, cmd_aa, OnCD_OMDR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+
+		mpsse_oncd_write (adapter, base + addr_even, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, cmd_55, OnCD_OMDR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+
+		mpsse_oncd_write (adapter, base + addr_odd, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, cmd_a0, OnCD_OMDR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+
+		mpsse_oncd_write (adapter, addr, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, *data, OnCD_OMDR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+
+		addr += 4;
+		data++;
+	}
+}
+
 /*
  * Инициализация адаптера F2232.
  * Возвращаем указатель на структуру данных, выделяемую динамически.
@@ -560,6 +619,12 @@ failed:		usb_release_interface (a->usbdev, 0);
 	a->adapter.stop_cpu = mpsse_stop_cpu;
 	a->adapter.oncd_read = mpsse_oncd_read;
 	a->adapter.oncd_write = mpsse_oncd_write;
+
+	/* Расширенные возможности. */
+//	a->adapter.read_block = mpsse_read_block;
+//	a->adapter.write_block = mpsse_write_block;
+//	a->adapter.write_nwords = mpsse_write_nwords;
+	a->adapter.program_block32 = mpsse_program_block32;
 	return &a->adapter;
 }
 

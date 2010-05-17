@@ -461,7 +461,7 @@ void do_program ()
 
 	if (! verify_only) {
 		/* Erase flash. */
-		if (!check_erase||!check_clean(target, memory_base))
+		if (! check_erase || ! check_clean (target, memory_base))
 			target_erase (target, memory_base);
 	}
 	for (progress_step=1; ; progress_step<<=1) {
