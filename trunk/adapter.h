@@ -6,14 +6,16 @@
 typedef struct _adapter_t adapter_t;
 
 struct _adapter_t {
-    char *name;
+    const char *name;
 
     /*
      * Обязательные функции.
      */
     void (*close) (adapter_t *a);
     unsigned (*get_idcode) (adapter_t *a);
+    int (*cpu_stopped) (adapter_t *a);
     void (*stop_cpu) (adapter_t *a);
+    void (*reset_cpu) (adapter_t *a);
     void (*oncd_write) (adapter_t *a, unsigned val, int reg, int nbits);
     unsigned (*oncd_read) (adapter_t *a, int reg, int nbits);
 
@@ -23,6 +25,8 @@ struct _adapter_t {
     unsigned block_words;
     unsigned program_block_words;
 
+    void (*step_cpu) (adapter_t *a);
+    void (*run_cpu) (adapter_t *a);
     void (*read_block) (adapter_t *adapter,
         unsigned nwords, unsigned addr, unsigned *data);
     void (*write_block) (adapter_t *adapter,
