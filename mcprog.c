@@ -422,6 +422,31 @@ void do_probe ()
 	}
 }
 
+/*
+ * Check chip clean.
+ */
+static int check_clean (target_t *t, unsigned addr)
+{
+	unsigned offset, i, sz, end, mem [16*1024];
+
+	sz = target_flash_bytes (t);
+	addr &= ~(sz-1);
+	end = addr + sz;
+	for (offset=0; addr+offset<end; offset+=sizeof(mem)) {
+                sz = sizeof (mem);
+		if (sz + offset > end)
+                        sz = end - offset;
+                sz /= sizeof(unsigned);
+		target_read_block (t, addr + offset, sz, mem);
+		for (i=0; i<sz; i++) {
+			if (mem[i] != 0xffffffff)
+				return 0;
+		}
+	}
+	printf ("Clean flash: %08X\n", addr);
+	return 1;
+};
+
 void do_program ()
 {
 	unsigned addr, sum;

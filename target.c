@@ -29,7 +29,7 @@
 
 struct _target_t {
 	adapter_t	*adapter;
-	char		*cpu_name;
+	const char	*cpu_name;
 	unsigned 	idcode;
 	unsigned	cscon3;		/* Регистр конфигурации flash-памяти */
 	unsigned	flash_width;
@@ -127,7 +127,7 @@ static void target_exec (target_t *t, unsigned instr)
 	t->adapter->oncd_write (t->adapter,
 		instr, OnCD_IRdec, 32);
 	t->adapter->oncd_write (t->adapter,
-		0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_STEP_1CLK, 0);
+		0, OnCD_GO | IRd_FLUSH_PIPE | IRd_STEP_1CLK, 0);
 }
 
 /*
@@ -364,7 +364,7 @@ void target_close (target_t *t)
 
 	/* Exit */
 	t->adapter->oncd_write (t->adapter,
-		0, OnCD_EXIT | IRd_FLUSH_PIPE | IRd_RUN, 0);
+		0, OnCD_GO | IRd_FLUSH_PIPE | IRd_RESUME, 0);
 
 	t->adapter->close (t->adapter);
 }
@@ -410,7 +410,7 @@ unsigned target_flash_next (target_t *t, unsigned prev, unsigned *last)
 	return ~0;
 }
 
-char *target_cpu_name (target_t *t)
+const char *target_cpu_name (target_t *t)
 {
 	return t->cpu_name;
 }
@@ -423,6 +423,11 @@ unsigned target_idcode (target_t *t)
 unsigned target_flash_width (target_t *t)
 {
 	return t->flash_width;
+}
+
+unsigned target_flash_bytes (target_t *t)
+{
+	return t->flash_bytes;
 }
 
 /*
@@ -999,31 +1004,3 @@ void target_program_block (target_t *t, unsigned addr,
 		break;
 	}
 }
-
-#define BLOCK_MEM	16*1024
-
-int check_clean (target_t *t, unsigned addr)
-{
-	unsigned base, offset, i, sz, end, n;
-	unsigned *mem;
-
-	n=0;
-	mem = malloc(sizeof(unsigned)*BLOCK_MEM);
-	/* Check chip clean. */
-	base = compute_base (t, addr);
-	end = base + t->flash_bytes;
-	for (offset=0;(base+offset)<end;offset+=sizeof(unsigned)*BLOCK_MEM) {
-		if ((sizeof(unsigned)*BLOCK_MEM+offset)<end) sz = BLOCK_MEM;
-		else sz = (end-offset)/sizeof(unsigned);
-		target_read_block(t, base+offset, sz, mem);
-		for (i=0;i<sz;i++) {
-			if (mem[i] != 0xffffffff) {
-				free(mem);
-				return(0);
-			};
-		};
-	};
-	free(mem);
-	printf ("Clean flash: %08X\n", base);
-	return(1);
-};

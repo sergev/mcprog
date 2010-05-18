@@ -4,9 +4,10 @@ target_t *target_open (void);
 void target_close (target_t *mc);
 
 unsigned target_idcode (target_t *mc);
-char *target_cpu_name (target_t *mc);
+const char *target_cpu_name (target_t *mc);
 
 unsigned target_flash_width (target_t *mc);
+unsigned target_flash_bytes (target_t *mc);
 void target_flash_configure (target_t *mc, unsigned first, unsigned last);
 int target_flash_detect (target_t *mc, unsigned base,
 	unsigned *mf, unsigned *dev, char *mfname, char *devname,
@@ -32,5 +33,16 @@ void target_write_nwords (target_t *t, unsigned nwords, ...);
 void target_write_byte (target_t *t, unsigned addr, unsigned data);
 void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
 	unsigned addr2, unsigned data2);
-int check_clean (target_t *t, unsigned addr);
 
+void target_stop (target_t *t);
+void target_step (target_t *t);
+void target_resume (target_t *t);
+void target_run (target_t *t, unsigned addr);
+void target_restart (target_t *t);
+int target_is_stopped (target_t *t, int *is_aborted);
+
+unsigned target_read_register (target_t *t, unsigned regno);
+void target_write_register (target_t *t, unsigned regno, unsigned val);
+
+void target_add_break (target_t *t, unsigned addr, int type);
+void target_remove_break (target_t *t, unsigned addr);
