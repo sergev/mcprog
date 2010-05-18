@@ -236,7 +236,14 @@ static void usb_stop_cpu (adapter_t *adapter)
 	usb_adapter_t *a = (usb_adapter_t*) adapter;
 	unsigned char rb[8];
 	unsigned retry;
-	static const unsigned char pkt_debug_request_sysrst[8] = {
+
+    //+++ sinvv: workaround for MCK-02
+	static const unsigned char pkt_debug_request[8] = {
+		HIR (H_DEBUG),
+		IR_DEBUG_REQUEST,
+	};
+    //--- sinvv: workaround for MCK-02
+    static const unsigned char pkt_debug_request_sysrst[8] = {
 		HIR (H_DEBUG | H_SYSRST),
 		IR_DEBUG_REQUEST,
 	};
@@ -251,6 +258,14 @@ static void usb_stop_cpu (adapter_t *adapter)
 			fprintf (stderr, "Failed debug request.\n");
 			exit (-1);
 		}
+		//+++ sinvv: workaround for MCK-02
+		if (rb[0] == 0x41) {
+			if (bulk_write_read (a->usbdev, pkt_debug_request, 2, rb, 2) != 2) {
+				fprintf (stderr, "Failed debug request.\n");
+				exit (-1);
+			}
+		}
+        //--- sinvv: workaround for MCK-02
 		if (rb[0] == 0x45)
 			break;
 		if (retry > 100) {
