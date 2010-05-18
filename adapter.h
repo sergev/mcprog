@@ -20,6 +20,9 @@ struct _adapter_t {
 	/*
 	 * Расширенные возможности.
 	 */
+	unsigned block_words;
+	unsigned program_block_words;
+
 	void (*read_block) (adapter_t *adapter,
 		unsigned nwords, unsigned addr, unsigned *data);
 	void (*write_block) (adapter_t *adapter,

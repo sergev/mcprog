@@ -699,6 +699,8 @@ found:
 	a->adapter.oncd_write = usb_oncd_write;
 
 	/* Расширенные возможности. */
+	a->adapter.block_words = 64;
+	a->adapter.program_block_words = 16;
 	a->adapter.read_block = usb_read_block;
 	a->adapter.write_block = usb_write_block;
 	a->adapter.write_nwords = usb_write_nwords;
