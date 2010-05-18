@@ -38,6 +38,8 @@ typedef struct {
 	int bytes_to_read;
 	unsigned long long fix_high_bit;
 	unsigned long long high_byte_mask;
+	unsigned long long high_bit_mask;
+	unsigned high_byte_bits;
 } mpsse_adapter_t;
 
 /*
@@ -171,9 +173,6 @@ static void mpsse_send (mpsse_adapter_t *a,
 		mpsse_flush_output (a);
 
 	/* Формируем пакет команд MPSSE. */
-	a->bytes_to_read = 0;
-	a->fix_high_bit = 0;
-	a->high_byte_mask = 0;
 	if (tms_prolog_nbits > 0) {
 		/* Пролог TMS, от 1 до 14 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
@@ -196,10 +195,12 @@ static void mpsse_send (mpsse_adapter_t *a,
 			tdi_nbits--;
 		}
 		unsigned nbytes = tdi_nbits / 8;
-		unsigned nbits = tdi_nbits - nbytes*8;
+		a->high_byte_bits = tdi_nbits & 7;
+		a->fix_high_bit = 0;
+		a->high_byte_mask = 0;
 		if (read_flag) {
 			a->bytes_to_read += nbytes;
-			if (nbits > 0)
+			if (a->high_byte_bits > 0)
 				a->bytes_to_read++;
 		}
 		if (nbytes > 0) {
@@ -216,16 +217,16 @@ static void mpsse_send (mpsse_adapter_t *a,
 				tdi >>= 8;
 			}
 		}
-		if (nbits > 0) {
+		if (a->high_byte_bits > 0) {
 			/* Последний нецелый байт.
 			 * 3b - Clock Data Bits In and Out LSB First
 			 * 1b - Clock Data Bits Out LSB First (no Read) */
 			a->output [a->bytes_to_write++] = read_flag ?
 				(WTDI + RTDO + BITMODE + CLKWNEG + LSB) :
 				(WTDI + BITMODE + CLKWNEG + LSB);
-			a->output [a->bytes_to_write++] = nbits - 1;
+			a->output [a->bytes_to_write++] = a->high_byte_bits - 1;
 			a->output [a->bytes_to_write++] = tdi;
-			tdi >>= nbits;
+			tdi >>= a->high_byte_bits;
 			a->high_byte_mask = 0xffULL << (a->bytes_to_read - 1) * 8;
 		}
 		if (tms_epilog_nbits > 0) {
@@ -247,6 +248,7 @@ static void mpsse_send (mpsse_adapter_t *a,
 				a->bytes_to_read++;
 			}
 		}
+		a->high_bit_mask = 1ULL << (tdi_nbits - 1);
 	}
 	if (tms_epilog_nbits > 0) {
 		/* Эпилог TMS, от 1 до 7 бит.
@@ -257,7 +259,7 @@ static void mpsse_send (mpsse_adapter_t *a,
 	}
 }
 
-static unsigned long long mpsse_recv (mpsse_adapter_t *a, unsigned tdi_nbits)
+static unsigned long long mpsse_recv (mpsse_adapter_t *a)
 {
 	int bytes_read, n, i;
 	unsigned char reply [64];
@@ -292,20 +294,19 @@ static unsigned long long mpsse_recv (mpsse_adapter_t *a, unsigned tdi_nbits)
 			bytes_read += n - 2;
 		}
 	}
-	unsigned long long fix_high = a->fix_high_bit & data;
-	unsigned high_bits = (tdi_nbits - 1) & 7;
-	if (high_bits) {
+	unsigned long long fix_high_bit = data & a->fix_high_bit;
+	if (a->high_byte_bits) {
 		/* Корректируем старший байт принятых данных. */
 		unsigned long long high_byte = a->high_byte_mask &
-			((data & a->high_byte_mask) >> (8-high_bits));
+			((data & a->high_byte_mask) >> (8 - a->high_byte_bits));
 		data = (data & ~a->high_byte_mask) | high_byte;
 /*		fprintf (stderr, "Corrected byte %08llx -> %08llx\n", a->high_byte_mask, high_byte);*/
 	}
-	data &= (1ULL << (tdi_nbits - 1)) - 1;
-	if (fix_high) {
+	data &= a->high_bit_mask - 1;
+	if (fix_high_bit) {
 		/* Корректируем старший бит принятых данных. */
-		data |= 1ULL << (tdi_nbits - 1);
-/*		fprintf (stderr, "Corrected bit %08llx -> %08x\n", a->fix_high_bit, 1 << (tdi_nbits - 1));*/
+		data |= a->high_bit_mask;
+/*		fprintf (stderr, "Corrected bit %08llx -> %08llx\n", a->fix_high_bit, a->high_bit_mask);*/
 	}
 
 	if (debug) {
@@ -314,6 +315,7 @@ static unsigned long long mpsse_recv (mpsse_adapter_t *a, unsigned tdi_nbits)
 			fprintf (stderr, "%c%02x", i ? '-' : ' ', ((unsigned char*)&data)[i]);
 		fprintf (stderr, "\n");
 	}
+	a->bytes_to_read = 0;
 	return data;
 }
 
@@ -385,7 +387,7 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 	 * After reset, the IDCODE register is always selected.
 	 * Read out 32 bits of data. */
 	mpsse_send (a, 6, 31, 32, 0, 1);
-	idcode = mpsse_recv (a, 32);
+	idcode = mpsse_recv (a);
 	return idcode;
 }
 
@@ -413,7 +415,7 @@ static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 	unsigned value;
 
 	mpsse_send (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
-	data = mpsse_recv (a, 9 + reglen);
+	data = mpsse_recv (a);
 	value = data >> 9;
 	if (debug) {
 		if (reg == OnCD_OSCR) {
@@ -474,7 +476,7 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 	i = 0;
 	for (;;) {
 		mpsse_send (a, 1, 1, 4, TAP_DEBUG_ENABLE, 1);
-		old_ir = mpsse_recv (a, 4);
+		old_ir = mpsse_recv (a);
 		if (old_ir == 5)
 			break;
 		mdelay (10);
@@ -661,7 +663,7 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 
 		/* Pass the pattern through TDI-TDO. */
 		mpsse_send (a, 0, 0, 33, pattern, 1);
-		result = mpsse_recv (a, 33);
+		result = mpsse_recv (a);
 		fprintf (stderr, "sent %08x received %08x\n", pattern, result);
 		if (result != pattern) {
 			/* Reset the JTAG TAP controller:

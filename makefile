@@ -8,7 +8,7 @@ OBJS		+= adapter-lpt.o
 OBJS		+= adapter-bitbang.o
 OBJS		+= adapter-mpsse.o
 
-all:		mcprog adapter-bitbang adapter-mpsse
+all:		mcprog #adapter-bitbang adapter-mpsse
 
 mcprog:		$(OBJS)
 		$(CC) -o mcprog $(OBJS) $(LIBS)
