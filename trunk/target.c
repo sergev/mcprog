@@ -88,6 +88,7 @@ struct _target_t {
 /* Идентификатор версии процессора. */
 #define MC12_ID			0x20777001
 #define MC12REV1_ID		0x30777001
+#define MC12REV2_ID		0x40777001
 
 #define MC_CSCON3		0x182F100C
 #define MC_CSCON3_ADDR(addr)	((addr & 3) << 20)
@@ -321,6 +322,9 @@ target_t *target_open ()
 		break;
 	case MC12REV1_ID:
 		t->cpu_name = "MC12r1";
+		break;
+	case MC12REV2_ID:
+		t->cpu_name = "MC12r2";
 		break;
 	}
 	t->adapter->stop_cpu (t->adapter);
@@ -563,7 +567,12 @@ int target_flash_detect (target_t *t, unsigned addr,
 				*mf = (unsigned char) *mf;
 			};
 			/* Stop read ID mode. */
-			target_write_byte (t, base, t->flash_cmd_f0);
+            //+++ sinvv
+			//target_write_byte (t, base, t->flash_cmd_f0);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_f0);
+            //--- sinvv
 
 		} else if (t->flash_delay) {
 			/* Word-wide data bus. */
@@ -592,7 +601,13 @@ int target_flash_detect (target_t *t, unsigned addr,
 			*mf = target_read_word (t, base);
 
 			/* Stop read ID mode. */
-			target_write_word (t, base, t->flash_cmd_f0);
+            //+++ sinvv
+			//target_write_word (t, base, t->flash_cmd_f0);
+			target_write_nwords (t, 3,
+				base + t->flash_addr_odd, t->flash_cmd_aa,
+				base + t->flash_addr_even, t->flash_cmd_55,
+				base + t->flash_addr_odd, t->flash_cmd_f0);
+            //--- sinvv
 		}
 
 		if (debug > 1)

@@ -232,7 +232,9 @@ void verify_block (target_t *mc, unsigned addr, int len)
 	int i;
 	unsigned word, expected, block [BLOCKSZ/4];
 
+//printf("memory_base+addr=0x%x;(len+3)/4=%d\n",memory_base+addr,(len+3)/4);
 	target_read_block (mc, memory_base + addr, (len+3)/4, block);
+//printf("block[0]=%x\n",block[0]);
 	for (i=0; i<len; i+=4) {
 		expected = *(unsigned*) (memory_data + addr + i);
 //		if (expected == 0xffffffff)
@@ -597,7 +599,7 @@ int main (int argc, char **argv)
 	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
 	signal (SIGINT, interrupted);
-	signal (SIGHUP, interrupted);
+	//signal (SIGHUP, interrupted);
 	signal (SIGTERM, interrupted);
 
 	while ((ch = getopt(argc, argv, "vDhrwb:s:c")) != -1) {
