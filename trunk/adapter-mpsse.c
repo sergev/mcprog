@@ -35,6 +35,9 @@ typedef struct {
 	/* Буфер для посылаемого пакета MPSSE. */
 	unsigned char output [256];
 	int bytes_to_write;
+	int bytes_to_read;
+	unsigned long long fix_high_bit;
+	unsigned long long high_byte_mask;
 } mpsse_adapter_t;
 
 /*
@@ -147,14 +150,10 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
 	a->bytes_to_write = 0;
 }
 
-static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
+static void mpsse_send (mpsse_adapter_t *a,
 	unsigned tms_prolog_nbits, unsigned tms_prolog,
 	unsigned tdi_nbits, unsigned long long tdi, int read_flag)
 {
-	int bytes_to_read, bytes_read, n, i;
-	unsigned char reply [64];
-	unsigned long long data = 0, fix_high_bit = 0;
-	unsigned long long high_byte_mask = 0;
 	unsigned tms_epilog_nbits = 0, tms_epilog = 0;
 
 	if (tdi_nbits > 0) {
@@ -172,7 +171,9 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 		mpsse_flush_output (a);
 
 	/* Формируем пакет команд MPSSE. */
-	bytes_to_read = 0;
+	a->bytes_to_read = 0;
+	a->fix_high_bit = 0;
+	a->high_byte_mask = 0;
 	if (tms_prolog_nbits > 0) {
 		/* Пролог TMS, от 1 до 14 бит.
 		 * 4b - Clock Data to TMS Pin (no Read) */
@@ -197,9 +198,9 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 		unsigned nbytes = tdi_nbits / 8;
 		unsigned nbits = tdi_nbits - nbytes*8;
 		if (read_flag) {
-			bytes_to_read += nbytes;
+			a->bytes_to_read += nbytes;
 			if (nbits > 0)
-				bytes_to_read++;
+				a->bytes_to_read++;
 		}
 		if (nbytes > 0) {
 			/* Целые байты.
@@ -225,7 +226,7 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			a->output [a->bytes_to_write++] = nbits - 1;
 			a->output [a->bytes_to_write++] = tdi;
 			tdi >>= nbits;
-			high_byte_mask = 0xffULL << (bytes_to_read - 1) * 8;
+			a->high_byte_mask = 0xffULL << (a->bytes_to_read - 1) * 8;
 		}
 		if (tms_epilog_nbits > 0) {
 			/* Последний бит, точнее два.
@@ -242,8 +243,8 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			if (read_flag) {
 				/* Последний бит придёт в следующем байте.
 				 * Вычисляем маску для коррекции. */
-				fix_high_bit = 0x40ULL << (bytes_to_read * 8);
-				bytes_to_read++;
+				a->fix_high_bit = 0x40ULL << (a->bytes_to_read * 8);
+				a->bytes_to_read++;
 			}
 		}
 	}
@@ -254,28 +255,30 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 		a->output [a->bytes_to_write++] = tms_epilog_nbits - 1;
 		a->output [a->bytes_to_write++] = tms_epilog;
 	}
+}
 
-	/* Если не требуется получение данных - оставляем сформированный
-	 * пакет в буфере. */
-	if (! read_flag)
-		return 0;
+static unsigned long long mpsse_recv (mpsse_adapter_t *a, unsigned tdi_nbits)
+{
+	int bytes_read, n, i;
+	unsigned char reply [64];
+	unsigned long long data = 0;
 
 	/* Шлём пакет. */
 	mpsse_flush_output (a);
 
 	/* Получаем ответ. */
 	bytes_read = 0;
-	while (bytes_read < bytes_to_read) {
+	while (bytes_read < a->bytes_to_read) {
 		n = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
-			bytes_to_read - bytes_read + 2, 2000);
+			a->bytes_to_read - bytes_read + 2, 2000);
 		if (n < 0) {
 			fprintf (stderr, "usb bulk read failed\n");
 			exit (-1);
 		}
 		if (debug) {
-			if (n != bytes_to_read + 2)
+			if (n != a->bytes_to_read + 2)
 				fprintf (stderr, "usb bulk read %d bytes of %d\n",
-					n, bytes_to_read - bytes_read + 2);
+					n, a->bytes_to_read - bytes_read + 2);
 			else {
 				fprintf (stderr, "usb bulk read %d bytes:", n);
 				for (i=0; i<n; i++)
@@ -289,27 +292,25 @@ static unsigned long long mpsse_send_recv (mpsse_adapter_t *a,
 			bytes_read += n - 2;
 		}
 	}
-	if (tdi_nbits > 0) {
-		fix_high_bit &= data;
-		unsigned high_bits = (tdi_nbits - 1) & 7;
-		if (high_bits) {
-			/* Корректируем старший байт принятых данных. */
-			unsigned long long high_byte = high_byte_mask &
-				((data & high_byte_mask) >> (8-high_bits));
-			data = (data & ~high_byte_mask) | high_byte;
-/*			fprintf (stderr, "Corrected byte %08llx -> %08llx\n", high_byte_mask, high_byte);*/
-		}
-		data &= (1ULL << (tdi_nbits - 1)) - 1;
-		if (fix_high_bit) {
-			/* Корректируем старший бит принятых данных. */
-			data |= 1ULL << (tdi_nbits - 1);
-/*			fprintf (stderr, "Corrected bit %08llx -> %08x\n", fix_high_bit, 1 << (tdi_nbits - 1));*/
-		}
+	unsigned long long fix_high = a->fix_high_bit & data;
+	unsigned high_bits = (tdi_nbits - 1) & 7;
+	if (high_bits) {
+		/* Корректируем старший байт принятых данных. */
+		unsigned long long high_byte = a->high_byte_mask &
+			((data & a->high_byte_mask) >> (8-high_bits));
+		data = (data & ~a->high_byte_mask) | high_byte;
+/*		fprintf (stderr, "Corrected byte %08llx -> %08llx\n", a->high_byte_mask, high_byte);*/
+	}
+	data &= (1ULL << (tdi_nbits - 1)) - 1;
+	if (fix_high) {
+		/* Корректируем старший бит принятых данных. */
+		data |= 1ULL << (tdi_nbits - 1);
+/*		fprintf (stderr, "Corrected bit %08llx -> %08x\n", a->fix_high_bit, 1 << (tdi_nbits - 1));*/
 	}
 
-	if (debug && bytes_to_read > 0) {
-		fprintf (stderr, "mpsse_send_recv returned %d bytes:", bytes_to_read);
-		for (i=0; i<bytes_to_read; i++)
+	if (debug) {
+		fprintf (stderr, "mpsse_recv returned %d bytes:", a->bytes_to_read);
+		for (i=0; i<a->bytes_to_read; i++)
 			fprintf (stderr, "%c%02x", i ? '-' : ' ', ((unsigned char*)&data)[i]);
 		fprintf (stderr, "\n");
 	}
@@ -383,7 +384,8 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 	/* Reset the JTAG TAP controller: TMS 1-1-1-1-1-0.
 	 * After reset, the IDCODE register is always selected.
 	 * Read out 32 bits of data. */
-	idcode = mpsse_send_recv (a, 6, 31, 32, 0, 1);
+	mpsse_send (a, 6, 31, 32, 0, 1);
+	idcode = mpsse_recv (a, 32);
 	return idcode;
 }
 
@@ -410,7 +412,8 @@ static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 	unsigned long long data;
 	unsigned value;
 
-	data = mpsse_send_recv (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
+	mpsse_send (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
+	data = mpsse_recv (a, 9 + reglen);
 	value = data >> 9;
 	if (debug) {
 		if (reg == OnCD_OSCR) {
@@ -452,7 +455,7 @@ static void mpsse_oncd_write (adapter_t *adapter,
 	data = reg;
 	if (reglen > 0)
 		data |= (unsigned long long) value << 9;
-	mpsse_send_recv (a, 0, 0, 9 + reglen, data, 0);
+	mpsse_send (a, 0, 0, 9 + reglen, data, 0);
 }
 
 /*
@@ -465,14 +468,13 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 	unsigned old_ir, i, oscr;
 
 	/* Debug request. */
-	mpsse_send_recv (a, 1, 1,			/* TMS 1 */
-		4, TAP_DEBUG_REQUEST, 0);
+	mpsse_send (a, 1, 1, 4, TAP_DEBUG_REQUEST, 0);
 
 	/* Wait while processor enters debug mode. */
 	i = 0;
 	for (;;) {
-		old_ir = mpsse_send_recv (a, 1, 1,	/* TMS 1 */
-			4, TAP_DEBUG_ENABLE, 1);
+		mpsse_send (a, 1, 1, 4, TAP_DEBUG_ENABLE, 1);
+		old_ir = mpsse_recv (a, 4);
 		if (old_ir == 5)
 			break;
 		mdelay (10);
@@ -485,6 +487,23 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 	oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_TME;
 	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+}
+
+static void mpsse_read_block (adapter_t *adapter,
+	unsigned nwords, unsigned addr, unsigned *data)
+{
+	unsigned oscr, i;
+
+	/* Allow memory access */
+	oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM | OSCR_RO;
+	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+
+	for (i=0; i<nwords; i++, addr+=4) {
+		mpsse_oncd_write (adapter, addr, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+		*data++ = mpsse_oncd_read (adapter, OnCD_OMDR, 32);
+	}
 }
 
 static void mpsse_program_block32 (adapter_t *adapter,
@@ -610,7 +629,7 @@ failed:		usb_release_interface (a->usbdev, 0);
 	bulk_write (a, (unsigned char*) "\x85", 1);
 
 	/* Reset the JTAG TAP controller. */
-	mpsse_send_recv (a, 6, 31, 0, 0, 0);		/* TMS 1-1-1-1-1-0 */
+	mpsse_send (a, 6, 31, 0, 0, 0);			/* TMS 1-1-1-1-1-0 */
 
 	/* Обязательные функции. */
 	a->adapter.name = "FT2232";
@@ -621,7 +640,7 @@ failed:		usb_release_interface (a->usbdev, 0);
 	a->adapter.oncd_write = mpsse_oncd_write;
 
 	/* Расширенные возможности. */
-//	a->adapter.read_block = mpsse_read_block;
+	a->adapter.read_block = mpsse_read_block;
 //	a->adapter.write_block = mpsse_write_block;
 //	a->adapter.write_nwords = mpsse_write_nwords;
 	a->adapter.program_block32 = mpsse_program_block32;
@@ -635,24 +654,24 @@ static int mpsse_test (adapter_t *adapter, int iterations)
 	unsigned result, pattern = 0;
 
 	/* Enter BYPASS mode. */
-	mpsse_send_recv (a, 1, 1,		/* TMS 1 */
-		4, TAP_BYPASS, 0);
+	mpsse_send (a, 1, 1, 4, TAP_BYPASS, 0);
 	do {
 		/* Simple pseudo-random generator. */
 		pattern = 1664525ul * pattern + 1013904223ul;
 
 		/* Pass the pattern through TDI-TDO. */
-		result = mpsse_send_recv (a, 0, 0, 33, pattern, 1) >> 1;
+		mpsse_send (a, 0, 0, 33, pattern, 1);
+		result = mpsse_recv (a, 33);
 		fprintf (stderr, "sent %08x received %08x\n", pattern, result);
 		if (result != pattern) {
 			/* Reset the JTAG TAP controller:
 			 * TMS 1-1-1-1-1-0. */
-			mpsse_send_recv (a, 6, 31, 0, 0, 0);
+			mpsse_send (a, 6, 31, 0, 0, 0);
 			return 0;
 		}
 	} while (--iterations > 0);
 
-	mpsse_send_recv (a, 3, 3, 0, 0, 0);		/* TMS 1-1-0 */
+	mpsse_send (a, 3, 3, 0, 0, 0);			/* TMS 1-1-0 */
 	return 1;
 }
 

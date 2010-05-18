@@ -237,13 +237,13 @@ static void usb_stop_cpu (adapter_t *adapter)
 	unsigned char rb[8];
 	unsigned retry;
 
-    //+++ sinvv: workaround for MCK-02
+	//+++ sinvv: workaround for MCK-02
 	static const unsigned char pkt_debug_request[8] = {
 		HIR (H_DEBUG),
 		IR_DEBUG_REQUEST,
 	};
-    //--- sinvv: workaround for MCK-02
-    static const unsigned char pkt_debug_request_sysrst[8] = {
+	//--- sinvv: workaround for MCK-02
+	static const unsigned char pkt_debug_request_sysrst[8] = {
 		HIR (H_DEBUG | H_SYSRST),
 		IR_DEBUG_REQUEST,
 	};
@@ -265,7 +265,7 @@ static void usb_stop_cpu (adapter_t *adapter)
 				exit (-1);
 			}
 		}
-        //--- sinvv: workaround for MCK-02
+		//--- sinvv: workaround for MCK-02
 		if (rb[0] == 0x45)
 			break;
 		if (retry > 100) {
