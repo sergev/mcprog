@@ -599,7 +599,9 @@ int main (int argc, char **argv)
 	printf (PROGNAME ", Version " VERSION "\n");
 	progname = argv[0];
 	signal (SIGINT, interrupted);
-	//signal (SIGHUP, interrupted);
+#ifdef __linux__
+	signal (SIGHUP, interrupted);
+#endif
 	signal (SIGTERM, interrupted);
 
 	while ((ch = getopt(argc, argv, "vDhrwb:s:c")) != -1) {
