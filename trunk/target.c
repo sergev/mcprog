@@ -804,8 +804,8 @@ void target_read_block (target_t *t, unsigned addr,
 	if (t->adapter->read_block) {
 		while (nwords > 0) {
 			unsigned n = nwords;
-			if (n > 64)
-				n = 64;
+			if (n > t->adapter->block_words)
+				n = t->adapter->block_words;
 			t->adapter->read_block (t->adapter, n, addr, data);
 			data += n;
 			addr += n*4;
@@ -831,8 +831,8 @@ void target_write_block (target_t *t, unsigned addr,
 	if (t->adapter->write_block) {
 		while (nwords > 0) {
 			unsigned n = nwords;
-			if (n > 64)
-				n = 64;
+			if (n > t->adapter->block_words)
+				n = t->adapter->block_words;
 			t->adapter->write_block (t->adapter, n, addr, data);
 			data += n;
 			addr += n*4;
@@ -869,8 +869,8 @@ static void target_program_block32 (target_t *t, unsigned addr,
 	if (t->adapter->program_block32) {
 		while (nwords > 0) {
 			unsigned n = nwords;
-			if (n > 16)
-				n = 16;
+			if (n > t->adapter->program_block_words)
+				n = t->adapter->program_block_words;
 			t->adapter->program_block32 (t->adapter,
 				n, base, addr, data,
 				t->flash_addr_odd, t->flash_addr_even,
@@ -939,11 +939,11 @@ static void target_program_block32_atmel (target_t *t, unsigned addr,
 static void target_program_block64 (target_t *t, unsigned addr,
 	unsigned base, unsigned nwords, unsigned *data)
 {
-	if (t->adapter->program_block32) {
+	if (t->adapter->program_block64) {
 		while (nwords > 0) {
 			unsigned n = nwords;
-			if (n > 16)
-				n = 16;
+			if (n > t->adapter->program_block_words)
+				n = t->adapter->program_block_words;
 			t->adapter->program_block64 (t->adapter,
 				n, base, addr, data,
 				t->flash_addr_odd, t->flash_addr_even,

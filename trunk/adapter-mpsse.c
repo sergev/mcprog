@@ -35,7 +35,11 @@ typedef struct {
 	/* Буфер для посылаемого пакета MPSSE. */
 	unsigned char output [256];
 	int bytes_to_write;
+
+	/* Буфер для принятых данных. */
+	unsigned char input [64];
 	int bytes_to_read;
+	int bytes_per_word;
 	unsigned long long fix_high_bit;
 	unsigned long long high_byte_mask;
 	unsigned long long high_bit_mask;
@@ -147,9 +151,50 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
  */
 static void mpsse_flush_output (mpsse_adapter_t *a)
 {
-	if (a->bytes_to_write > 0)
-		bulk_write (a, a->output, a->bytes_to_write);
+	int bytes_read, n, i;
+	unsigned char reply [64];
+
+	if (a->bytes_to_write <= 0)
+		return;
+
+	bulk_write (a, a->output, a->bytes_to_write);
 	a->bytes_to_write = 0;
+	if (a->bytes_to_read <= 0)
+		return;
+
+	/* Получаем ответ. */
+	bytes_read = 0;
+	while (bytes_read < a->bytes_to_read) {
+		n = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
+			a->bytes_to_read - bytes_read + 2, 2000);
+		if (n < 0) {
+			fprintf (stderr, "usb bulk read failed\n");
+			exit (-1);
+		}
+		if (debug) {
+			if (n != a->bytes_to_read + 2)
+				fprintf (stderr, "usb bulk read %d bytes of %d\n",
+					n, a->bytes_to_read - bytes_read + 2);
+			else {
+				fprintf (stderr, "usb bulk read %d bytes:", n);
+				for (i=0; i<n; i++)
+					fprintf (stderr, "%c%02x", i ? '-' : ' ', reply[i]);
+				fprintf (stderr, "\n");
+			}
+		}
+		if (n > 2) {
+			/* Copy data. */
+			memcpy (a->input + bytes_read, reply + 2, n - 2);
+			bytes_read += n - 2;
+		}
+	}
+	if (debug) {
+		fprintf (stderr, "mpsse_flush_output received %d bytes:", a->bytes_to_read);
+		for (i=0; i<a->bytes_to_read; i++)
+			fprintf (stderr, "%c%02x", i ? '-' : ' ', a->input[i]);
+		fprintf (stderr, "\n");
+	}
+	a->bytes_to_read = 0;
 }
 
 static void mpsse_send (mpsse_adapter_t *a,
@@ -195,13 +240,15 @@ static void mpsse_send (mpsse_adapter_t *a,
 			tdi_nbits--;
 		}
 		unsigned nbytes = tdi_nbits / 8;
-		a->high_byte_bits = tdi_nbits & 7;
-		a->fix_high_bit = 0;
-		a->high_byte_mask = 0;
+		unsigned last_byte_bits = tdi_nbits & 7;
 		if (read_flag) {
-			a->bytes_to_read += nbytes;
+			a->high_byte_bits = last_byte_bits;
+			a->fix_high_bit = 0;
+			a->high_byte_mask = 0;
+			a->bytes_per_word = nbytes;
 			if (a->high_byte_bits > 0)
-				a->bytes_to_read++;
+				a->bytes_per_word++;
+			a->bytes_to_read += a->bytes_per_word;
 		}
 		if (nbytes > 0) {
 			/* Целые байты.
@@ -217,17 +264,17 @@ static void mpsse_send (mpsse_adapter_t *a,
 				tdi >>= 8;
 			}
 		}
-		if (a->high_byte_bits > 0) {
+		if (last_byte_bits) {
 			/* Последний нецелый байт.
 			 * 3b - Clock Data Bits In and Out LSB First
 			 * 1b - Clock Data Bits Out LSB First (no Read) */
 			a->output [a->bytes_to_write++] = read_flag ?
 				(WTDI + RTDO + BITMODE + CLKWNEG + LSB) :
 				(WTDI + BITMODE + CLKWNEG + LSB);
-			a->output [a->bytes_to_write++] = a->high_byte_bits - 1;
+			a->output [a->bytes_to_write++] = last_byte_bits - 1;
 			a->output [a->bytes_to_write++] = tdi;
-			tdi >>= a->high_byte_bits;
-			a->high_byte_mask = 0xffULL << (a->bytes_to_read - 1) * 8;
+			tdi >>= last_byte_bits;
+			a->high_byte_mask = 0xffULL << (a->bytes_per_word - 1) * 8;
 		}
 		if (tms_epilog_nbits > 0) {
 			/* Последний бит, точнее два.
@@ -244,11 +291,13 @@ static void mpsse_send (mpsse_adapter_t *a,
 			if (read_flag) {
 				/* Последний бит придёт в следующем байте.
 				 * Вычисляем маску для коррекции. */
-				a->fix_high_bit = 0x40ULL << (a->bytes_to_read * 8);
+				a->fix_high_bit = 0x40ULL << (a->bytes_per_word * 8);
+				a->bytes_per_word++;
 				a->bytes_to_read++;
 			}
 		}
-		a->high_bit_mask = 1ULL << (tdi_nbits - 1);
+		if (read_flag)
+			a->high_bit_mask = 1ULL << (tdi_nbits - 1);
 	}
 	if (tms_epilog_nbits > 0) {
 		/* Эпилог TMS, от 1 до 7 бит.
@@ -259,64 +308,37 @@ static void mpsse_send (mpsse_adapter_t *a,
 	}
 }
 
+static unsigned long long mpsse_fix_data (mpsse_adapter_t *a, unsigned long long word)
+{
+	unsigned long long fix_high_bit = word & a->fix_high_bit;
+	//if (debug) fprintf (stderr, "fix (%08llx) high_bit=%08llx\n", word, a->fix_high_bit);
+
+	if (a->high_byte_bits) {
+		/* Корректируем старший байт принятых данных. */
+		unsigned long long high_byte = a->high_byte_mask &
+			((word & a->high_byte_mask) >> (8 - a->high_byte_bits));
+		word = (word & ~a->high_byte_mask) | high_byte;
+		//if (debug) fprintf (stderr, "Corrected byte %08llx -> %08llx\n", a->high_byte_mask, high_byte);
+	}
+	word &= a->high_bit_mask - 1;
+	if (fix_high_bit) {
+		/* Корректируем старший бит принятых данных. */
+		word |= a->high_bit_mask;
+		//if (debug) fprintf (stderr, "Corrected bit %08llx -> %08llx\n", a->high_bit_mask, word >> 9);
+	}
+	return word;
+}
+
 static unsigned long long mpsse_recv (mpsse_adapter_t *a)
 {
-	int bytes_read, n, i;
-	unsigned char reply [64];
-	unsigned long long data = 0;
+	unsigned long long word;
 
 	/* Шлём пакет. */
 	mpsse_flush_output (a);
 
-	/* Получаем ответ. */
-	bytes_read = 0;
-	while (bytes_read < a->bytes_to_read) {
-		n = usb_bulk_read (a->usbdev, OUT_EP, (char*) reply,
-			a->bytes_to_read - bytes_read + 2, 2000);
-		if (n < 0) {
-			fprintf (stderr, "usb bulk read failed\n");
-			exit (-1);
-		}
-		if (debug) {
-			if (n != a->bytes_to_read + 2)
-				fprintf (stderr, "usb bulk read %d bytes of %d\n",
-					n, a->bytes_to_read - bytes_read + 2);
-			else {
-				fprintf (stderr, "usb bulk read %d bytes:", n);
-				for (i=0; i<n; i++)
-					fprintf (stderr, "%c%02x", i ? '-' : ' ', reply[i]);
-				fprintf (stderr, "\n");
-			}
-		}
-		if (n > 2) {
-			/* Copy data. */
-			memcpy ((char*)&data + bytes_read, reply + 2, n - 2);
-			bytes_read += n - 2;
-		}
-	}
-	unsigned long long fix_high_bit = data & a->fix_high_bit;
-	if (a->high_byte_bits) {
-		/* Корректируем старший байт принятых данных. */
-		unsigned long long high_byte = a->high_byte_mask &
-			((data & a->high_byte_mask) >> (8 - a->high_byte_bits));
-		data = (data & ~a->high_byte_mask) | high_byte;
-/*		fprintf (stderr, "Corrected byte %08llx -> %08llx\n", a->high_byte_mask, high_byte);*/
-	}
-	data &= a->high_bit_mask - 1;
-	if (fix_high_bit) {
-		/* Корректируем старший бит принятых данных. */
-		data |= a->high_bit_mask;
-/*		fprintf (stderr, "Corrected bit %08llx -> %08llx\n", a->fix_high_bit, a->high_bit_mask);*/
-	}
-
-	if (debug) {
-		fprintf (stderr, "mpsse_recv returned %d bytes:", a->bytes_to_read);
-		for (i=0; i<a->bytes_to_read; i++)
-			fprintf (stderr, "%c%02x", i ? '-' : ' ', ((unsigned char*)&data)[i]);
-		fprintf (stderr, "\n");
-	}
-	a->bytes_to_read = 0;
-	return data;
+	/* Обрабатываем одно слово. */
+	word = *(unsigned long long*) a->input;
+	return mpsse_fix_data (a, word);
 }
 
 static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst, int led)
@@ -411,12 +433,10 @@ static void print_oscr_bits (unsigned value)
 static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 {
 	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
-	unsigned long long data;
 	unsigned value;
 
 	mpsse_send (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
-	data = mpsse_recv (a);
-	value = data >> 9;
+	value = mpsse_recv (a) >> 9;
 	if (debug) {
 		if (reg == OnCD_OSCR) {
 			fprintf (stderr, "OnCD read %04x", value);
@@ -494,17 +514,73 @@ static void mpsse_stop_cpu (adapter_t *adapter)
 static void mpsse_read_block (adapter_t *adapter,
 	unsigned nwords, unsigned addr, unsigned *data)
 {
+	mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
 	unsigned oscr, i;
+	unsigned long long word;
 
 	/* Allow memory access */
 	oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
 	oscr |= OSCR_SlctMEM | OSCR_RO;
 	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
 
-	for (i=0; i<nwords; i++, addr+=4) {
+	while (nwords > 0) {
+		unsigned n = nwords;
+		if (n > 6)
+			n = 6;
+		for (i=0; i<n; i++) {
+			mpsse_oncd_write (adapter, addr + i*4, OnCD_OMAR, 32);
+			mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
+			mpsse_send (a, 0, 0, 9 + 32, OnCD_OMDR | IRd_READ, 1);
+		}
+
+		/* Шлём пакет. */
+		mpsse_flush_output (a);
+
+		/* Обрабатываем слово за словом, со сдвигом 9 бит. */
+		for (i=0; i<n; i++) {
+			word = *(unsigned long long*) &a->input [i * a->bytes_per_word];
+			data[i] = mpsse_fix_data (a, word) >> 9;
+//fprintf (stderr, "addr = %08x, i = %d, bytes_per_word = %d, ", addr + i*4, i, a->bytes_per_word);
+//fprintf (stderr, "fixed = %08x\n", data[i]);
+		}
+		data += n;
+		addr += n*4;
+		nwords -= n;
+	}
+}
+
+static void mpsse_write_block (adapter_t *adapter,
+	unsigned nwords, unsigned addr, unsigned *data)
+{
+	/* Allow memory access */
+	unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+
+	while (nwords-- > 0) {
 		mpsse_oncd_write (adapter, addr, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, *data, OnCD_OMDR, 32);
 		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
-		*data++ = mpsse_oncd_read (adapter, OnCD_OMDR, 32);
+		addr += 4;
+		data++;
+	}
+}
+
+static void mpsse_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
+{
+	/* Allow memory access */
+	unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
+	oscr |= OSCR_SlctMEM;
+	oscr &= ~OSCR_RO;
+	mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+
+	while (nwords-- > 0) {
+		unsigned addr = va_arg (args, unsigned);
+		unsigned data = va_arg (args, unsigned);
+		mpsse_oncd_write (adapter, addr, OnCD_OMAR, 32);
+		mpsse_oncd_write (adapter, data, OnCD_OMDR, 32);
+		mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
 	}
 }
 
@@ -603,7 +679,7 @@ failed:		usb_release_interface (a->usbdev, 0);
 
 	/* Ровно 500 нсек между выдачами. */
 	unsigned divisor = 5;
-	unsigned char latency_timer = 10;
+	unsigned char latency_timer = 1;
 
 	if (usb_control_msg (a->usbdev,
 	    USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
@@ -642,9 +718,11 @@ failed:		usb_release_interface (a->usbdev, 0);
 	a->adapter.oncd_write = mpsse_oncd_write;
 
 	/* Расширенные возможности. */
+	a->adapter.block_words = 999999;
+	a->adapter.program_block_words = 999999;
 	a->adapter.read_block = mpsse_read_block;
-//	a->adapter.write_block = mpsse_write_block;
-//	a->adapter.write_nwords = mpsse_write_nwords;
+	a->adapter.write_block = mpsse_write_block;
+	a->adapter.write_nwords = mpsse_write_nwords;
 	a->adapter.program_block32 = mpsse_program_block32;
 	return &a->adapter;
 }
