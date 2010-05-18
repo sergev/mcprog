@@ -567,12 +567,9 @@ int target_flash_detect (target_t *t, unsigned addr,
 				*mf = (unsigned char) *mf;
 			};
 			/* Stop read ID mode. */
-            //+++ sinvv
-			//target_write_byte (t, base, t->flash_cmd_f0);
 			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
 			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
 			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_f0);
-            //--- sinvv
 
 		} else if (t->flash_delay) {
 			/* Word-wide data bus. */
@@ -601,13 +598,10 @@ int target_flash_detect (target_t *t, unsigned addr,
 			*mf = target_read_word (t, base);
 
 			/* Stop read ID mode. */
-            //+++ sinvv
-			//target_write_word (t, base, t->flash_cmd_f0);
 			target_write_nwords (t, 3,
 				base + t->flash_addr_odd, t->flash_cmd_aa,
 				base + t->flash_addr_even, t->flash_cmd_55,
 				base + t->flash_addr_odd, t->flash_cmd_f0);
-            //--- sinvv
 		}
 
 		if (debug > 1)
