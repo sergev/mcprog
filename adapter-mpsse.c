@@ -106,28 +106,43 @@ typedef struct {
 #define RTDO	0x20
 #define WTMS	0x40
 
-static char *oncd_regname[] = {
+static const char *oncd_regname[] = {
 	"OSCR",		"OMBC",		"OMLR0",	"OMLR1",
 	"OBCR",		"IRdec",	"OTC",		"PCdec",
 	"PCexec",	"PCmem",	"PCfetch",	"OMAR",
 	"OMDR",		"MEM",		"PCwb",		"EXIT",
 };
 
-static char *oscr_bitname[] = {
+static const char *oscr_bitname[] = {
 	"SlctMEM",	"RO",		"TME",		"IME",
 	"MPE",		"RDYm",		"MBO",		"TO",
 	"SWO",		"SO",		"DBM",		"NDS",
 	"VBO",		"NFEXP",	"WP0",		"WP1",
 };
 
+static void print_oscr_bits (unsigned value)
+{
+	int i;
+
+	fprintf (stderr, " (");
+	for (i=15; i>=0; i--)
+		if (value & (1 << i)) {
+			fprintf (stderr, "%s", oscr_bitname [i]);
+			if (value & ((1 << i) - 1))
+				fprintf (stderr, ",");
+		}
+	fprintf (stderr, ")");
+}
+
 /*
  * Посылка пакета данных USB-устройству.
  */
 static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
 {
-	int bytes_written, i;
+	int bytes_written;
 
 	if (debug) {
+		int i;
 		fprintf (stderr, "usb bulk write %d bytes:", nbytes);
 		for (i=0; i<nbytes; i++)
 			fprintf (stderr, "%c%02x", i ? '-' : ' ', output[i]);
@@ -151,7 +166,7 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
  */
 static void mpsse_flush_output (mpsse_adapter_t *a)
 {
-	int bytes_read, n, i;
+	int bytes_read, n;
 	unsigned char reply [64];
 
 	if (a->bytes_to_write <= 0)
@@ -176,6 +191,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
 				fprintf (stderr, "usb bulk read %d bytes of %d\n",
 					n, a->bytes_to_read - bytes_read + 2);
 			else {
+				int i;
 				fprintf (stderr, "usb bulk read %d bytes:", n);
 				for (i=0; i<n; i++)
 					fprintf (stderr, "%c%02x", i ? '-' : ' ', reply[i]);
@@ -189,6 +205,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
 		}
 	}
 	if (debug) {
+		int i;
 		fprintf (stderr, "mpsse_flush_output received %d bytes:", a->bytes_to_read);
 		for (i=0; i<a->bytes_to_read; i++)
 			fprintf (stderr, "%c%02x", i ? '-' : ' ', a->input[i]);
@@ -337,7 +354,7 @@ static unsigned long long mpsse_recv (mpsse_adapter_t *a)
 	mpsse_flush_output (a);
 
 	/* Обрабатываем одно слово. */
-	word = *(unsigned long long*) a->input;
+	memcpy (&word, a->input, sizeof (word));
 	return mpsse_fix_data (a, word);
 }
 
@@ -411,20 +428,6 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 	mpsse_send (a, 6, 31, 32, 0, 1);
 	idcode = mpsse_recv (a);
 	return idcode;
-}
-
-static void print_oscr_bits (unsigned value)
-{
-	int i;
-
-	fprintf (stderr, " (");
-	for (i=15; i>=0; i--)
-		if (value & (1 << i)) {
-			fprintf (stderr, "%s", oscr_bitname [i]);
-			if (value & ((1 << i) - 1))
-				fprintf (stderr, ",");
-		}
-	fprintf (stderr, ")");
 }
 
 /*
@@ -704,7 +707,8 @@ failed:		usb_release_interface (a->usbdev, 0);
 	mpsse_speed (a, divisor);
 
 	/* Disable TDI to TDO loopback. */
-	bulk_write (a, (unsigned char*) "\x85", 1);
+	unsigned char enable_loopback[] = "\x85";
+	bulk_write (a, enable_loopback, 1);
 
 	/* Reset the JTAG TAP controller. */
 	mpsse_send (a, 6, 31, 0, 0, 0);			/* TMS 1-1-1-1-1-0 */
