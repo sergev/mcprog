@@ -33,7 +33,7 @@ typedef struct {
     usb_dev_handle *usbdev;
 
     /* Буфер для посылаемого пакета MPSSE. */
-    unsigned char output [256];
+    unsigned char output [256*16];
     int bytes_to_write;
 
     /* Буфер для принятых данных. */
@@ -528,8 +528,8 @@ static void mpsse_read_block (adapter_t *adapter,
 
     while (nwords > 0) {
         unsigned n = nwords;
-        if (n > 6)
-            n = 6;
+        if (n > 10)
+            n = 10;
         for (i=0; i<n; i++) {
             mpsse_oncd_write (adapter, addr + i*4, OnCD_OMAR, 32);
             mpsse_oncd_write (adapter, 0, OnCD_MEM, 0);
@@ -681,7 +681,7 @@ failed:     usb_release_interface (a->usbdev, 0);
     }
 
     /* Ровно 500 нсек между выдачами. */
-    unsigned divisor = 5;
+    unsigned divisor = 0;
     unsigned char latency_timer = 1;
 
     if (usb_control_msg (a->usbdev,
