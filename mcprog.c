@@ -461,7 +461,7 @@ void do_program ()
         memory_base + memory_len, memory_len);
     if (checksum_addr) {
         /* Store length and checksum. */
-        sum = compute_checksum (memory_data + memory_base, memory_len);
+        sum = compute_checksum (memory_data, memory_len);
         *(unsigned*) (memory_data + checksum_addr) = memory_len;
         *(unsigned*) (memory_data + checksum_addr + 4) = sum;
         printf ("Checksum: %08X at address %08X\n", sum, checksum_addr);
