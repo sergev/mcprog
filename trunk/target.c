@@ -1447,7 +1447,6 @@ void target_resume (target_t *t)
     if (t->adapter->run_cpu)
         t->adapter->run_cpu (t->adapter);
     else {
-        /* Exit. */
         t->adapter->oncd_write (t->adapter,
             0, OnCD_GO | IRd_RESUME | IRd_FLUSH_PIPE, 0);
     }
@@ -1461,6 +1460,7 @@ void target_run (target_t *t, unsigned addr)
     target_restore_state (t);
     t->is_running = 1;
     t->adapter->oncd_write (t->adapter, addr, OnCD_PCfetch, 32);
+    t->adapter->oncd_write (t->adapter, MIPS_NOP, OnCD_IRdec, 32);
 #if 1
     /* Очистка конвейера процессора. */
     unsigned oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
@@ -1468,7 +1468,12 @@ void target_run (target_t *t, unsigned addr)
     oscr |= OSCR_MPE;
     t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
 #endif
-    target_resume (t);
+    if (t->adapter->run_cpu)
+        t->adapter->run_cpu (t->adapter);
+    else {
+        t->adapter->oncd_write (t->adapter,
+            0, OnCD_GO | IRd_RESUME | IRd_FLUSH_PIPE, 0);
+    }
 }
 
 void target_restart (target_t *t)
