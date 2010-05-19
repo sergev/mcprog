@@ -490,7 +490,7 @@ static void mpsse_oncd_write (adapter_t *adapter,
 static void mpsse_stop_cpu (adapter_t *adapter)
 {
     mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
-    unsigned old_ir, i, oscr;
+    unsigned old_ir, i;
 
     /* Debug request. */
     mpsse_send (a, 1, 1, 4, TAP_DEBUG_REQUEST, 0);
@@ -508,26 +508,24 @@ static void mpsse_stop_cpu (adapter_t *adapter)
             exit (1);
         }
     }
-    mpsse_oncd_write (adapter, 0, OnCD_OBCR, 12);
-    oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_TME;
-    mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
 }
 
 static void mpsse_read_block (adapter_t *adapter,
     unsigned nwords, unsigned addr, unsigned *data)
 {
     mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
-    unsigned oscr, i;
     unsigned long long word;
 
     /* Allow memory access */
-    oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM | OSCR_RO;
-    mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = adapter->oscr | OSCR_SlctMEM | OSCR_RO;
+    if (oscr_new != adapter->oscr) {
+        adapter->oscr = oscr_new;
+        mpsse_oncd_write (adapter, adapter->oscr, OnCD_OSCR, 32);
+    }
+    mpsse_flush_output (a);
 
     while (nwords > 0) {
-        unsigned n = nwords;
+        unsigned i, n = nwords;
         if (n > 10)
             n = 10;
         for (i=0; i<n; i++) {
@@ -556,10 +554,11 @@ static void mpsse_write_block (adapter_t *adapter,
     unsigned nwords, unsigned addr, unsigned *data)
 {
     /* Allow memory access */
-    unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM;
-    oscr &= ~OSCR_RO;
-    mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = (adapter->oscr & ~OSCR_RO) | OSCR_SlctMEM;
+    if (oscr_new != adapter->oscr) {
+        adapter->oscr = oscr_new;
+        mpsse_oncd_write (adapter, adapter->oscr, OnCD_OSCR, 32);
+    }
 
     while (nwords-- > 0) {
         mpsse_oncd_write (adapter, addr, OnCD_OMAR, 32);
@@ -573,10 +572,11 @@ static void mpsse_write_block (adapter_t *adapter,
 static void mpsse_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 {
     /* Allow memory access */
-    unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM;
-    oscr &= ~OSCR_RO;
-    mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = (adapter->oscr & ~OSCR_RO) | OSCR_SlctMEM;
+    if (oscr_new != adapter->oscr) {
+        adapter->oscr = oscr_new;
+        mpsse_oncd_write (adapter, adapter->oscr, OnCD_OSCR, 32);
+    }
 
     while (nwords-- > 0) {
         unsigned addr = va_arg (args, unsigned);
@@ -593,10 +593,11 @@ static void mpsse_program_block32 (adapter_t *adapter,
     unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0)
 {
     /* Allow memory access */
-    unsigned oscr = mpsse_oncd_read (adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM;
-    oscr &= ~OSCR_RO;
-    mpsse_oncd_write (adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = (adapter->oscr & ~OSCR_RO) | OSCR_SlctMEM;
+    if (oscr_new != adapter->oscr) {
+        adapter->oscr = oscr_new;
+        mpsse_oncd_write (adapter, adapter->oscr, OnCD_OSCR, 32);
+    }
 
     while (nwords-- > 0) {
         mpsse_oncd_write (adapter, base + addr_odd, OnCD_OMAR, 32);
@@ -681,7 +682,7 @@ failed:     usb_release_interface (a->usbdev, 0);
     }
 
     /* Ровно 500 нсек между выдачами. */
-    unsigned divisor = 0;
+    unsigned divisor = 3;
     unsigned char latency_timer = 1;
 
     if (usb_control_msg (a->usbdev,

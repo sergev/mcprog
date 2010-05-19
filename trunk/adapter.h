@@ -8,6 +8,9 @@ typedef struct _adapter_t adapter_t;
 struct _adapter_t {
     const char *name;
 
+    /* Регистр управления блоком отладки. */
+    unsigned oscr;
+
     /*
      * Обязательные функции.
      */

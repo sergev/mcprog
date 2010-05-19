@@ -207,7 +207,6 @@ static void target_write_cp0 (target_t *t, int regno, unsigned val)
  */
 static void target_save_state (target_t *t)
 {
-    unsigned oscr;
     int i;
 
     /* Сохраняем конвейер. */
@@ -224,12 +223,12 @@ static void target_save_state (target_t *t)
 //fprintf (stderr, "PC wb    = %08x\n", t->pc_wb);
 
     /* Снимаем запрет останова в Delay Slot. */
-    oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    oscr &= ~OSCR_NDS;
+    t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
+    t->adapter->oscr &= ~OSCR_NDS;
 
     /* Отменяем исключение по адресу PC. */
-    oscr |= OSCR_NFEXP;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    t->adapter->oscr |= OSCR_NFEXP;
+    t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
 
     t->exception = NO_EXCEPTION;
     if (t->pc_exec) {
@@ -251,13 +250,13 @@ static void target_save_state (target_t *t)
         }
     }
     /* Восстанавливаем исключение по адресу PC. */
-    oscr &= ~OSCR_NFEXP;
+    t->adapter->oscr &= ~OSCR_NFEXP;
 
     /* Ставим бит отладки.
      * Он останавливает счётчики, блокирует прерывания и исключения TLB,
      * и разрешает доступ к привилегированным ресурсам. */
-    oscr |= OSCR_DBM;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    t->adapter->oscr |= OSCR_DBM;
+    t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
 
     /* Забываем старые значения регистров. */
     for (i=0; i<32; i++) {
@@ -298,7 +297,6 @@ static void target_save_state (target_t *t)
  */
 static void target_restore_state (target_t *t)
 {
-    unsigned oscr;
     int i;
 
     /* Восстанавливаем регистры FP и GP. */
@@ -332,12 +330,11 @@ static void target_restore_state (target_t *t)
     }
 
     /* Запрещаем останов в Delay Slot. */
-    oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_NDS;
+    t->adapter->oscr |= OSCR_NDS;
 
     /* Снимаем бит отладки. */
-    oscr &= ~OSCR_DBM;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    t->adapter->oscr &= ~OSCR_DBM;
+    t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
 }
 
 /*
@@ -540,7 +537,7 @@ void target_write_register (target_t *t, unsigned regno, unsigned val)
  */
 void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 {
-    unsigned count, oscr;
+    unsigned count;
 
     if (phys_addr >= 0xA0000000)
         phys_addr -= 0xA0000000;
@@ -553,30 +550,30 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
     t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
 
-    for (count = 1000; count != 0; count--) {
-        oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-        if (oscr & OSCR_RDYm)
+    for (count = 100; count != 0; count--) {
+        t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
+        if (t->adapter->oscr & OSCR_RDYm)
             break;
         mdelay (1);
     }
     if (count == 0) {
-        fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n", oscr);
+        fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n",
+            t->adapter->oscr);
         exit (1);
     }
 }
 
 void target_write_word (target_t *t, unsigned phys_addr, unsigned data)
 {
-    unsigned oscr;
-
     if (debug)
         fprintf (stderr, "write word %08x to %08x\n", data, phys_addr);
 
     /* Allow memory access */
-    oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM;
-    oscr &= ~OSCR_RO;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = (t->adapter->oscr & ~OSCR_RO) | OSCR_SlctMEM;
+    if (oscr_new != t->adapter->oscr) {
+        t->adapter->oscr = oscr_new;
+        t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
+    }
 
     target_write_next (t, phys_addr, data);
 }
@@ -586,17 +583,17 @@ void target_write_word (target_t *t, unsigned phys_addr, unsigned data)
  */
 void target_read_start (target_t *t)
 {
-    unsigned oscr;
-
     /* Allow memory access */
-    oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    oscr |= OSCR_SlctMEM | OSCR_RO;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    unsigned oscr_new = t->adapter->oscr | OSCR_SlctMEM | OSCR_RO;
+    if (oscr_new != t->adapter->oscr) {
+        t->adapter->oscr = oscr_new;
+        t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
+    }
 }
 
 unsigned target_read_next (target_t *t, unsigned phys_addr)
 {
-    unsigned count, oscr, data;
+    unsigned count, data;
 
     if (phys_addr >= 0xA0000000)
         phys_addr -= 0xA0000000;
@@ -606,13 +603,14 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
     t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
     for (count = 100; count != 0; count--) {
-        oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-        if (oscr & OSCR_RDYm)
+        t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
+        if (t->adapter->oscr & OSCR_RDYm)
             break;
         mdelay (1);
     }
     if (count == 0) {
-        fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
+        fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n",
+            t->adapter->oscr);
         exit (1);
     }
     data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
@@ -982,10 +980,16 @@ int target_flash_detect (target_t *t, unsigned addr,
             *mf = target_read_word (t, base);
 
             /* Stop read ID mode. */
+#if 0
+            // sinvv
             target_write_nwords (t, 3,
                 base + t->flash_addr_odd, t->flash_cmd_aa,
                 base + t->flash_addr_even, t->flash_cmd_55,
                 base + t->flash_addr_odd, t->flash_cmd_f0);
+#else
+            /* Требуется для чипов Миландр 1636РР2У. */
+            target_write_word (t, base, t->flash_cmd_90);
+#endif
         }
 
         if (debug > 1)
@@ -1146,9 +1150,10 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     switch (t->flash_width) {
     case 8:
         /* Вычисляем нужный байт. */
-        for (bad &= ~word; ! (bad & 0xFF); bad >>= 8) {
+        for (bad &= ~word; bad && ! (bad & 0xFF); bad >>= 8) {
             addr++;
             word >>= 8;
+//fprintf (stderr, "\nbad = %08x, word = %08x, addr=%08x ", bad, word, addr); fflush (stderr);
         }
         byte = word;
 //fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
@@ -1187,6 +1192,7 @@ void target_read_block (target_t *t, unsigned addr,
     else if (addr >= 0x80000000)
         addr -= 0x80000000;
 
+//fprintf (stderr, "target_read_block (addr = %x, nwords = %d)\n", addr, nwords);
     if (t->adapter->read_block) {
         while (nwords > 0) {
             unsigned n = nwords;
@@ -1202,6 +1208,7 @@ void target_read_block (target_t *t, unsigned addr,
     target_read_start (t);
     for (i=0; i<nwords; i++, addr+=4)
         *data++ = target_read_next (t, addr);
+//fprintf (stderr, "    done (addr = %x)\n", addr);
 }
 
 void target_write_block (target_t *t, unsigned addr,
@@ -1234,6 +1241,7 @@ void target_write_block (target_t *t, unsigned addr,
 static void target_program_block8 (target_t *t, unsigned addr,
     unsigned base, unsigned nwords, unsigned *data)
 {
+//fprintf (stderr, "target_program_block8 (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, t->flash_width, base);
     /* Unlock bypass. */
     target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
         base + t->flash_addr_even, t->flash_cmd_55);
@@ -1247,6 +1255,7 @@ static void target_program_block8 (target_t *t, unsigned addr,
     }
     /* Reset unlock bypass. */
     target_write_2bytes (t, base, t->flash_cmd_90, base, 0);
+//fprintf (stderr, "    done (addr = %x)\n", addr);
 }
 
 static void target_program_block32 (target_t *t, unsigned addr,
@@ -1407,8 +1416,7 @@ int target_is_stopped (target_t *t, int *is_aborted)
 
     /* Бит SWO означает, что останов произошёл по команде BREAKD
      * в выполняемой программе. */
-    unsigned oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    if (oscr & OSCR_SWO)
+    if (t->adapter->oscr & OSCR_SWO)
         *is_aborted = 1;
     return 1;
 }
@@ -1421,7 +1429,7 @@ void target_stop (target_t *t)
     t->is_running = 0;
     target_save_state (t);
     t->cscon3 = target_read_word (t, MC_CSCON3) & ~MC_CSCON3_ADDR (3);
-//fprintf (stderr, "target_stop(), CSCON3 = %08x, oscr = %08x\n", t->cscon3, t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32));
+//fprintf (stderr, "target_stop(), CSCON3 = %08x, oscr = %08x\n", t->cscon3, t->adapter->oscr);
 }
 
 void target_step (target_t *t)
@@ -1450,7 +1458,7 @@ void target_resume (target_t *t)
         t->adapter->oncd_write (t->adapter,
             0, OnCD_GO | IRd_RESUME | IRd_FLUSH_PIPE, 0);
     }
-//fprintf (stderr, "target_resume(), oscr = %08x\n", t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32));
+//fprintf (stderr, "target_resume(), oscr = %08x\n", t->adapter->oscr);
 }
 
 void target_run (target_t *t, unsigned addr)
@@ -1463,10 +1471,9 @@ void target_run (target_t *t, unsigned addr)
     t->adapter->oncd_write (t->adapter, MIPS_NOP, OnCD_IRdec, 32);
 #if 1
     /* Очистка конвейера процессора. */
-    unsigned oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-    oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
-    oscr |= OSCR_MPE;
-    t->adapter->oncd_write (t->adapter, oscr, OnCD_OSCR, 32);
+    t->adapter->oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
+    t->adapter->oscr |= OSCR_MPE;
+    t->adapter->oncd_write (t->adapter, t->adapter->oscr, OnCD_OSCR, 32);
 #endif
     if (t->adapter->run_cpu)
         t->adapter->run_cpu (t->adapter);
