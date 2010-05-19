@@ -988,7 +988,7 @@ int target_flash_detect (target_t *t, unsigned addr,
                 base + t->flash_addr_odd, t->flash_cmd_f0);
 #else
             /* Требуется для чипов Миландр 1636РР2У. */
-            target_write_word (t, base, t->flash_cmd_90);
+            target_write_word (t, base, t->flash_cmd_f0);
 #endif
         }
 
