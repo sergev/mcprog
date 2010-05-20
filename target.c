@@ -1142,8 +1142,8 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     /* Повтор записи возможен, только если не прописались нули. */
     bad = target_read_word (t, addr);
     if ((bad & word) != word) {
-        fprintf (stderr, "target: cannot rewrite word at %x\n",
-            addr);
+        fprintf (stderr, "target: cannot rewrite word at %x: good %08x bad %08x\n",
+            addr, word, bad);
         exit (1);
     }
 
@@ -1465,11 +1465,14 @@ void target_run (target_t *t, unsigned addr)
 {
     if (t->is_running)
         return;
+
+    /* Изменение адреса следующей команды реализуется
+     * аналогично входу в отработчик исключения. */
+    t->exception = addr;
+
     target_restore_state (t);
     t->is_running = 1;
-    t->adapter->oncd_write (t->adapter, addr, OnCD_PCfetch, 32);
-    t->adapter->oncd_write (t->adapter, MIPS_NOP, OnCD_IRdec, 32);
-#if 1
+#if 0
     /* Очистка конвейера процессора. */
     t->adapter->oscr &= ~(OSCR_TME | OSCR_IME | OSCR_SlctMEM | OSCR_RDYm);
     t->adapter->oscr |= OSCR_MPE;
