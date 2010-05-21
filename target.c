@@ -552,16 +552,20 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
     t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
 
-    for (count = 100; count != 0; count--) {
-        t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-        if (t->adapter->oscr & OSCR_RDYm)
-            break;
-        mdelay (1);
-    }
-    if (count == 0) {
-        fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n",
-            t->adapter->oscr);
-        exit (1);
+    if (t->is_running) {
+        /* Если процессор запущен, обращение к памяти произойдёт не сразу.
+         * Надо ждать появления бита RDYm в регистре OSCR. */
+        for (count = 100; count != 0; count--) {
+            t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
+            if (t->adapter->oscr & OSCR_RDYm)
+                break;
+            mdelay (1);
+        }
+        if (count == 0) {
+            fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n",
+                t->adapter->oscr);
+            exit (1);
+        }
     }
 }
 
@@ -604,16 +608,20 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 
     t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
-    for (count = 100; count != 0; count--) {
-        t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
-        if (t->adapter->oscr & OSCR_RDYm)
-            break;
-        mdelay (1);
-    }
-    if (count == 0) {
-        fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n",
-            t->adapter->oscr);
-        exit (1);
+    if (t->is_running) {
+        /* Если процессор запущен, обращение к памяти произойдёт не сразу.
+         * Надо ждать появления бита RDYm в регистре OSCR. */
+        for (count = 100; count != 0; count--) {
+            t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
+            if (t->adapter->oscr & OSCR_RDYm)
+                break;
+            mdelay (1);
+        }
+        if (count == 0) {
+            fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n",
+                t->adapter->oscr);
+            exit (1);
+        }
     }
     data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
 
