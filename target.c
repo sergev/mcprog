@@ -51,7 +51,8 @@ struct _target_t {
     unsigned    flash_last [NFLASH];
     unsigned    flash_delay;
 
-    unsigned    pc_fetch, pc_dec, pc_exec, pc_mem, pc_wb, ir_dec;
+    unsigned    pc_fetch, pc_dec, ir_dec, pc_exec;
+//    unsigned    pc_mem, pc_wb;
     unsigned    mem0;
     unsigned    reg [32], valid [32];
     unsigned    reg_lo, valid_lo;
@@ -212,10 +213,10 @@ static void target_save_state (target_t *t)
     /* Сохраняем конвейер. */
     t->pc_fetch = t->adapter->oncd_read (t->adapter, OnCD_PCfetch, 32);
     t->pc_dec = t->adapter->oncd_read (t->adapter, OnCD_PCdec, 32);
-    t->pc_exec = t->adapter->oncd_read (t->adapter, OnCD_PCexec, 32);
-    t->pc_mem = t->adapter->oncd_read (t->adapter, OnCD_PCmem, 32);
-    t->pc_wb = t->adapter->oncd_read (t->adapter, OnCD_PCwb, 32);
     t->ir_dec = t->adapter->oncd_read (t->adapter, OnCD_IRdec, 32);
+    t->pc_exec = t->adapter->oncd_read (t->adapter, OnCD_PCexec, 32);
+//    t->pc_mem = t->adapter->oncd_read (t->adapter, OnCD_PCmem, 32);
+//    t->pc_wb = t->adapter->oncd_read (t->adapter, OnCD_PCwb, 32);
 //fprintf (stderr, "PC fetch = %08x\n", t->pc_fetch);
 //fprintf (stderr, "PC dec   = %08x, ir = %08x\n", t->pc_dec, t->ir_dec);
 //fprintf (stderr, "PC exec  = %08x\n", t->pc_exec);
@@ -544,8 +545,9 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
     else if (phys_addr >= 0x80000000)
         phys_addr -= 0x80000000;
 
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+
     t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
     t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
@@ -565,7 +567,7 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 
 void target_write_word (target_t *t, unsigned phys_addr, unsigned data)
 {
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "write word %08x to %08x\n", data, phys_addr);
 
     /* Allow memory access */
@@ -614,7 +616,8 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
         exit (1);
     }
     data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
-    if (debug)
+
+    if (debug_level)
         fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
     return data;
 }
@@ -709,8 +712,9 @@ target_t *target_open ()
 
     /* Проверяем идентификатор процессора. */
     t->idcode = t->adapter->get_idcode (t->adapter);
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "idcode %08X\n", t->idcode);
+
     switch (t->idcode) {
     default:
         /* Device not detected. */
@@ -991,9 +995,9 @@ int target_flash_detect (target_t *t, unsigned addr,
             target_write_word (t, base, t->flash_cmd_f0);
 #endif
         }
-
-        if (debug > 1)
+        if (debug_level > 1)
             fprintf (stderr, "flash id %08X\n", *dev);
+
         switch (*dev) {
         case ID_29LV800_B:
             strcpy (chipname, "29LV800B");
@@ -1429,7 +1433,7 @@ void target_stop (target_t *t)
     t->is_running = 0;
     target_save_state (t);
     t->cscon3 = target_read_word (t, MC_CSCON3) & ~MC_CSCON3_ADDR (3);
-//fprintf (stderr, "target_stop(), CSCON3 = %08x, oscr = %08x\n", t->cscon3, t->adapter->oscr);
+//fprintf (stderr, "target_stop(), CSCON3 = %08x, oscr = %08x\n", t->cscon3, t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32));
 }
 
 void target_step (target_t *t)

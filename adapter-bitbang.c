@@ -177,9 +177,10 @@ static void bitbang_send_recv (bitbang_adapter_t *a)
         /* Write data. */
         bytes_written = 0;
         while (bytes_written < bytes_to_write) {
-            if (debug)
+            if (debug_level)
                 fprintf (stderr, "usb bulk write %d bytes\n",
                     bytes_to_write - bytes_written);
+
             n = usb_bulk_write (a->usbdev, IN_EP,
                 (char*) a->output + txdone + bytes_written,
                 bytes_to_write - bytes_written, 1000);
@@ -210,9 +211,8 @@ static void bitbang_send_recv (bitbang_adapter_t *a)
                 if (n != bytes_to_read + 2)
                     fprintf (stderr, "usb bulk read %d bytes of %d\n",
                         n, bytes_to_read - bytes_read + 2);
-                else if (debug)
+                else if (debug_level)
                     fprintf (stderr, "usb bulk read %d bytes\n", n);
-
                 if (n > 2) {
                     /* Copy data. */
                     memcpy (a->output + rxdone, reply + 2, n - 2);
@@ -372,7 +372,7 @@ static unsigned bitbang_oncd_read (adapter_t *adapter, int reg, int reglen)
     tap_data (a, 9 + reglen,
         (unsigned char*) &data, (unsigned char*) &data);
     value = data >> 9;
-    if (debug) {
+    if (debug_level > 1) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD read %04x", value);
             if (value)
@@ -393,7 +393,7 @@ static void bitbang_oncd_write (adapter_t *adapter,
     bitbang_adapter_t *a = (bitbang_adapter_t*) adapter;
     unsigned long long data;
 
-    if (debug) {
+    if (debug_level > 1) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD write %04x", value);
             if (value)
@@ -521,11 +521,11 @@ failed:     usb_release_interface (a->usbdev, 0);
     /* Ровно 500 нсек между выдачами. */
     unsigned divisor = 0;
     unsigned char latency_timer = 1;
-
-    int baud = (divisor == 0) ? 3000000 :
-        (divisor == 1) ? 2000000 : 3000000 / divisor;
-    if (debug)
+    if (debug_level) {
+        int baud = (divisor == 0) ? 3000000 :
+            (divisor == 1) ? 2000000 : 3000000 / divisor;
         fprintf (stderr, "Bitbang: speed %d samples/sec\n", baud);
+    }
 
     /* Frequency divisor is 14-bit non-zero value. */
     if (usb_control_msg (a->usbdev,
@@ -548,7 +548,7 @@ failed:     usb_release_interface (a->usbdev, 0);
         fprintf (stderr, "unable to get latency timer\n");
         goto failed;
     }
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "Bitbang: latency timer: %u usec\n", latency_timer);
 
     /* Reset the JTAG TAP controller. */
@@ -620,7 +620,7 @@ static int bitbang_test (adapter_t *adapter, int iterations)
     return 1;
 }
 
-int debug;
+int debug_level;
 
 #if defined (__CYGWIN32__) || defined (MINGW32)
 #include <windows.h>
@@ -646,7 +646,7 @@ int main (int argc, char **argv)
     while ((ch = getopt(argc, argv, "vh")) != -1) {
         switch (ch) {
         case 'v':
-            ++debug;
+            ++debug_level;
             continue;
         case 'h':
             break;

@@ -41,7 +41,7 @@ unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
 int check_erase;
 int verify_only;
-int debug;
+int debug_level;
 target_t *target;
 char *progname;
 char *confname;
@@ -241,7 +241,7 @@ void verify_block (target_t *mc, unsigned addr, int len)
 //      if (expected == 0xffffffff)
 //          continue;
         word = block [i/4];
-        if (debug > 1)
+        if (debug_level > 1)
             printf ("read word %08X at address %08X\n",
                 word, addr + i + memory_base);
         while (word != expected) {
@@ -646,7 +646,7 @@ int main (int argc, char **argv)
             ++verify_only;
             continue;
         case 'D':
-            ++debug;
+            ++debug_level;
             continue;
         case 'r':
             ++read_mode;
