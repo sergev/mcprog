@@ -141,7 +141,7 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
 {
     int bytes_written;
 
-    if (debug_level) {
+    if (debug_level > 1) {
         int i;
         fprintf (stderr, "usb bulk write %d bytes:", nbytes);
         for (i=0; i<nbytes; i++)
@@ -186,7 +186,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
             fprintf (stderr, "usb bulk read failed\n");
             exit (-1);
         }
-        if (debug_level) {
+        if (debug_level > 1) {
             if (n != a->bytes_to_read + 2)
                 fprintf (stderr, "usb bulk read %d bytes of %d\n",
                     n, a->bytes_to_read - bytes_read + 2);
@@ -204,7 +204,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
             bytes_read += n - 2;
         }
     }
-    if (debug_level) {
+    if (debug_level > 1) {
         int i;
         fprintf (stderr, "mpsse_flush_output received %d bytes:", a->bytes_to_read);
         for (i=0; i<a->bytes_to_read; i++)
@@ -453,7 +453,7 @@ static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 
     mpsse_send (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
     value = mpsse_recv (a) >> 9;
-    if (debug_level) {
+    if (debug_level > 1) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD read %04x", value);
             if (value)
@@ -474,7 +474,7 @@ static void mpsse_oncd_write (adapter_t *adapter,
     mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
     unsigned long long data;
 
-    if (debug_level) {
+    if (debug_level > 1) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD write %04x", value);
             if (value)
