@@ -141,7 +141,7 @@ static void bulk_write (mpsse_adapter_t *a, unsigned char *output, int nbytes)
 {
     int bytes_written;
 
-    if (debug) {
+    if (debug_level) {
         int i;
         fprintf (stderr, "usb bulk write %d bytes:", nbytes);
         for (i=0; i<nbytes; i++)
@@ -186,7 +186,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
             fprintf (stderr, "usb bulk read failed\n");
             exit (-1);
         }
-        if (debug) {
+        if (debug_level) {
             if (n != a->bytes_to_read + 2)
                 fprintf (stderr, "usb bulk read %d bytes of %d\n",
                     n, a->bytes_to_read - bytes_read + 2);
@@ -204,7 +204,7 @@ static void mpsse_flush_output (mpsse_adapter_t *a)
             bytes_read += n - 2;
         }
     }
-    if (debug) {
+    if (debug_level) {
         int i;
         fprintf (stderr, "mpsse_flush_output received %d bytes:", a->bytes_to_read);
         for (i=0; i<a->bytes_to_read; i++)
@@ -387,7 +387,7 @@ static void mpsse_reset (mpsse_adapter_t *a, int trst, int sysrst, int led)
     output [2] = high_direction;
 
     bulk_write (a, output, 3);
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "mpsse_reset (trst=%d, sysrst=%d) high_output=0x%2.2x, high_direction: 0x%2.2x\n",
             trst, sysrst, high_output, high_direction);
 }
@@ -431,6 +431,19 @@ static unsigned mpsse_get_idcode (adapter_t *adapter)
 }
 
 /*
+ * Выяснение, остановлен ли процессор.
+ */
+static int mpsse_cpu_stopped (adapter_t *adapter)
+{
+    mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
+    unsigned ir;
+
+    mpsse_send (a, 1, 1, 4, TAP_DEBUG_ENABLE, 1);
+    ir = mpsse_recv (a);
+    return ir & 4;
+}
+
+/*
  * Чтение регистра OnCD.
  */
 static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
@@ -440,7 +453,7 @@ static unsigned mpsse_oncd_read (adapter_t *adapter, int reg, int reglen)
 
     mpsse_send (a, 0, 0, 9 + reglen, reg | IRd_READ, 1);
     value = mpsse_recv (a) >> 9;
-    if (debug) {
+    if (debug_level) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD read %04x", value);
             if (value)
@@ -461,7 +474,7 @@ static void mpsse_oncd_write (adapter_t *adapter,
     mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
     unsigned long long data;
 
-    if (debug) {
+    if (debug_level) {
         if (reg == OnCD_OSCR) {
             fprintf (stderr, "OnCD write %04x", value);
             if (value)
@@ -622,6 +635,19 @@ static void mpsse_program_block32 (adapter_t *adapter,
 }
 
 /*
+ * Аппаратный сброс процессора.
+ */
+static void mpsse_reset_cpu (adapter_t *adapter)
+{
+    mpsse_adapter_t *a = (mpsse_adapter_t*) adapter;
+    mpsse_flush_output (a);
+
+    /* Активируем /SYSRST на несколько микросекунд. */
+    mpsse_reset (a, 0, 1, 1);
+    mpsse_reset (a, 0, 0, 1);
+}
+
+/*
  * Инициализация адаптера F2232.
  * Возвращаем указатель на структуру данных, выделяемую динамически.
  * Если адаптер не обнаружен, возвращаем 0.
@@ -697,14 +723,15 @@ failed:     usb_release_interface (a->usbdev, 0);
         fprintf (stderr, "unable to get latency timer\n");
         goto failed;
     }
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "MPSSE: latency timer: %u usec\n", latency_timer);
 
     mpsse_reset (a, 0, 0, 1);
 
-    int baud = 6000000 / (divisor + 1);
-    if (debug)
+    if (debug_level) {
+        int baud = 6000000 / (divisor + 1);
         fprintf (stderr, "MPSSE: speed %d samples/sec\n", baud);
+    }
     mpsse_speed (a, divisor);
 
     /* Disable TDI to TDO loopback. */
@@ -718,7 +745,9 @@ failed:     usb_release_interface (a->usbdev, 0);
     a->adapter.name = "FT2232";
     a->adapter.close = mpsse_close;
     a->adapter.get_idcode = mpsse_get_idcode;
+    a->adapter.cpu_stopped = mpsse_cpu_stopped;
     a->adapter.stop_cpu = mpsse_stop_cpu;
+    a->adapter.reset_cpu = mpsse_reset_cpu;
     a->adapter.oncd_read = mpsse_oncd_read;
     a->adapter.oncd_write = mpsse_oncd_write;
 
@@ -760,7 +789,7 @@ static int mpsse_test (adapter_t *adapter, int iterations)
     return 1;
 }
 
-int debug;
+int debug_level;
 
 #if defined (__CYGWIN32__) || defined (MINGW32)
 #include <windows.h>
@@ -786,7 +815,7 @@ int main (int argc, char **argv)
     while ((ch = getopt(argc, argv, "vh")) != -1) {
         switch (ch) {
         case 'v':
-            ++debug;
+            ++debug_level;
             continue;
         case 'h':
             break;

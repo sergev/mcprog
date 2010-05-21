@@ -107,7 +107,7 @@ static inline unsigned char inb (unsigned port)
     unsigned char value;
 
     __asm__ __volatile__ ("inb %w1, %0" : "=a" (value) : "Nd" (port));
-    if (debug) {
+    if (debug_level > 1) {
         if (port == SPP_CONTROL)     printf ("        ctrl");
         else if (port == SPP_STATUS) printf ("        stat");
         else if (port == EPP_ADDR)   printf ("        addr");
@@ -123,7 +123,7 @@ static inline unsigned char inb (unsigned port)
 #define outb myoutb
 static inline void outb (unsigned char value, unsigned port)
 {
-    if (debug) {
+    if (debug_level > 1) {
         printf ("%02x -> ", value);
         if (port == SPP_CONTROL)     printf ("ctrl\n");
         else if (port == SPP_STATUS) printf ("stat\n");

@@ -117,7 +117,7 @@ static void print_pkt (unsigned char *pkt, unsigned len)
 static void bulk_write (usb_dev_handle *usbdev,
     const unsigned char *wb, unsigned wlen)
 {
-    if (debug) {
+    if (debug_level) {
         unsigned i;
         fprintf (stderr, "Bulk write: %02x", *wb);
         for (i=1; i<wlen; ++i)
@@ -139,11 +139,10 @@ static void bulk_write (usb_dev_handle *usbdev,
 static void bulk_cmd (usb_dev_handle *usbdev,
     unsigned char cmd)
 {
-    int transferred;
-
-    if (debug)
+    if (debug_level)
         fprintf (stderr, "Bulk cmd: %02x\n", cmd);
-    transferred = usb_bulk_write (usbdev, BULK_CONTROL_ENDPOINT,
+
+    int transferred = usb_bulk_write (usbdev, BULK_CONTROL_ENDPOINT,
         (char*) &cmd, 1, 1000);
     if (transferred != 1) {
         fprintf (stderr, "Bulk cmd failed: command to endpoint %#x.\n",
@@ -167,7 +166,7 @@ static unsigned bulk_read (usb_dev_handle *usbdev,
             transferred, rlen, BULK_READ_ENDPOINT);
         _exit (-1);
     }
-    if (debug) {
+    if (debug_level) {
         if (transferred) {
             unsigned i;
             fprintf (stderr, "Bulk read: %02x", *rb);
@@ -187,9 +186,7 @@ static unsigned bulk_write_read (usb_dev_handle *usbdev,
     const unsigned char *wb, unsigned wlen,
     unsigned char *rb, unsigned rlen)
 {
-    int transferred;
-
-    if (debug) {
+    if (debug_level) {
         unsigned i;
         fprintf (stderr, "Bulk write-read: %02x", *wb);
         for (i=1; i<wlen; ++i)
@@ -197,7 +194,7 @@ static unsigned bulk_write_read (usb_dev_handle *usbdev,
         fprintf (stderr, " --> ");
         fflush (stderr);
     }
-    transferred = usb_bulk_write (usbdev, BULK_WRITE_ENDPOINT,
+    int transferred = usb_bulk_write (usbdev, BULK_WRITE_ENDPOINT,
         (char*) wb, wlen, 1000);
     if (transferred != wlen) {
         fprintf (stderr, "Bulk write(-read) failed: %d bytes to endpoint %#x.\n",
@@ -211,7 +208,7 @@ static unsigned bulk_write_read (usb_dev_handle *usbdev,
             transferred, rlen, BULK_READ_ENDPOINT);
         _exit (-1);
     }
-    if (debug) {
+    if (debug_level) {
         if (transferred) {
             unsigned i;
             fprintf (stderr, "%02x", *rb);
@@ -746,10 +743,14 @@ found:
     bulk_cmd (a->usbdev, ADAPTER_PLL_12MHZ);
 /*  bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);*/
     mdelay (1);
+
+#ifndef HAVE_CONFIG_H
+    /* Делаем reset только для mcprog. */
     bulk_cmd (a->usbdev, ADAPTER_ACTIVE_RESET);
     mdelay (1);
     bulk_cmd (a->usbdev, ADAPTER_DEACTIVE_RESET);
     mdelay (1);
+#endif
 
     /* Сброс OnCD. */
     bulk_write_read (a->usbdev, pkt_reset, 2, rb, 2);
