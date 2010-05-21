@@ -37,6 +37,7 @@ unsigned char memory_data [0x800000];   /* Code - up to 8 Mbytes */
 int memory_len;
 unsigned memory_base;
 unsigned checksum_addr;
+unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
 int check_erase;
 int verify_only;
@@ -287,7 +288,9 @@ void probe_flash (target_t *mc, unsigned base)
 void quit (void)
 {
     if (target != 0) {
-        target_run (target, DEFAULT_ADDR);
+        if (start_addr != DEFAULT_ADDR)
+            printf ("Start: %08X\n", start_addr);
+        target_run (target, start_addr);
         target_close (target);
         free (target);
         target = 0;
@@ -327,23 +330,23 @@ void configure_parameter (char *section, char *param, char *value)
 
     /* Needed section found. */
     if (strcasecmp (param, "csr") == 0) {
-        word = strtol (value, 0, 0);
+        word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F4008, word);
 
     } else if (strcasecmp (param, "cscon0") == 0) {
-        word = strtol (value, 0, 0);
+        word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1000, word);
 
     } else if (strcasecmp (param, "cscon1") == 0) {
-        word = strtol (value, 0, 0);
+        word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1004, word);
 
     } else if (strcasecmp (param, "cscon2") == 0) {
-        word = strtol (value, 0, 0);
+        word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1008, word);
 
     } else if (strcasecmp (param, "cscon3") == 0) {
-        word = strtol (value, 0, 0);
+        word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F100C, word);
 
     } else if (strcasecmp (param, "cr_pll") == 0) {
@@ -634,7 +637,7 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt(argc, argv, "vDhrwb:s:c")) != -1) {
+    while ((ch = getopt(argc, argv, "vDhrwb:s:cg:")) != -1) {
         switch (ch) {
         case 'c':
             ++check_erase;
@@ -651,11 +654,14 @@ int main (int argc, char **argv)
         case 'w':
             ++memory_write_mode;
             continue;
+        case 'g':
+            start_addr = strtoul (optarg, 0, 0);
+            continue;
         case 'b':
             board = optarg;
             continue;
         case 's':
-            checksum_addr = strtol (optarg, 0, 0);
+            checksum_addr = strtoul (optarg, 0, 0);
             continue;
         case 'h':
             break;
@@ -667,8 +673,8 @@ usage:
         printf ("       mcprog [-v] file.sre\n");
         printf ("       mcprog [-v] file.bin [address]\n");
         printf ("\nWrite static memory:\n");
-        printf ("       mcprog -w [-v] file.sre\n");
-        printf ("       mcprog -w [-v] file.bin [address]\n");
+        printf ("       mcprog -w [-v] [-g address] file.sre\n");
+        printf ("       mcprog -w [-v] [-g address] file.bin [address]\n");
         printf ("\nRead memory:\n");
         printf ("       mcprog -r file.bin address length\n");
         printf ("\nArgs:\n");
@@ -682,6 +688,7 @@ usage:
         printf ("       -r          Read mode\n");
         printf ("       -b name     Specify board name\n");
         printf ("       -s addr     Compute and store checksum\n");
+        printf ("       -g addr     Start execution from address\n");
         exit (0);
     }
     argc -= optind;
