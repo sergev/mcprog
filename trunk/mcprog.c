@@ -24,7 +24,7 @@
 #include "target.h"
 #include "conf.h"
 
-#define PROGNAME        "Programmer for Elvees Multicore CPU"
+#define PROGNAME        "Programmer for Elvees MIPS32 processors"
 #define VERSION         "1.8"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
@@ -630,6 +630,7 @@ int main (int argc, char **argv)
     setvbuf (stdout, (char *)NULL, _IOLBF, 0);
     setvbuf (stderr, (char *)NULL, _IOLBF, 0);
     printf (PROGNAME ", Version " VERSION "\n");
+    printf ("Copyright (C) 2010 Serge Vakulenko\n");
     progname = argv[0];
     signal (SIGINT, interrupted);
 #ifdef __linux__

@@ -1217,9 +1217,9 @@ int main (int argc, char **argv)
         }
     }
 
-    printf("\nRemote proxy for GDB, v%s, Copyright (C) 2010 RDC \"Elvees\".\n",
-           VERSION);
-    printf("MIPS32 adaption Copyright (C) 2010 Serge Vakulenko\n\n");
+    printf("Remote GDB proxy for Elvees MIPS32 processors, Version %s\n",
+        VERSION);
+    printf("Copyright (C) 2010 Serge Vakulenko\n\n");
     printf("MCremote comes with ABSOLUTELY NO WARRANTY; for details\n");
     printf("use `--warranty' option. This is Open Source software. You are\n");
     printf("welcome to redistribute it under certain conditions. Use the\n");
