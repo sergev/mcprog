@@ -2,16 +2,23 @@ CC		= gcc
 CFLAGS		= -Wall -g -I/opt/local/include -O
 LIBS		= -L/opt/local/lib -lusb
 
-OBJS		= mcprog.o target.o conf.o
-OBJS		+= adapter-usb.o
-OBJS		+= adapter-lpt.o
-OBJS		+= adapter-bitbang.o
-OBJS		+= adapter-mpsse.o
+COMMON_OBJS     = target.o
+COMMON_OBJS     += adapter-usb.o
+COMMON_OBJS	+= adapter-lpt.o
+COMMON_OBJS	+= adapter-bitbang.o
+COMMON_OBJS	+= adapter-mpsse.o
 
-all:		mcprog #adapter-bitbang adapter-mpsse
+PROG_OBJS	= mcprog.o conf.o $(COMMON_OBJS)
 
-mcprog:		$(OBJS)
-		$(CC) -o mcprog $(OBJS) $(LIBS)
+REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
+
+all:		mcprog mcremote #adapter-bitbang adapter-mpsse
+
+mcprog:		$(PROG_OBJS)
+		$(CC) -o $@ $(PROG_OBJS) $(LIBS)
+
+mcremote:	$(REMOTE_OBJS)
+		$(CC) -o $@ $(REMOTE_OBJS) $(LIBS)
 
 adapter-bitbang: adapter-bitbang.c
 		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c $(LIBS)
