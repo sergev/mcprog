@@ -711,8 +711,10 @@ target_t *target_open (int need_reset)
 	t->adapter = adapter_open_mpsse ();
     if (! t->adapter)
         t->adapter = adapter_open_bitbang ();
+#ifndef __APPLE__
     if (! t->adapter)
         t->adapter = adapter_open_lpt ();
+#endif
     if (! t->adapter) {
         fprintf (stderr, "No JTAG adapter found.\n");
         exit (-1);
