@@ -48,10 +48,6 @@
 
    $Id: target_msp430.c,v 1.0 2010/04/05 15:00:00 wolvi.lataniere Exp $ */
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif /* HAVE_CONFIG_H */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>

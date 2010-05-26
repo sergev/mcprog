@@ -47,10 +47,6 @@
 
    $Id: target_skeleton.c,v 1.5 2005/08/21 06:51:56 coppice Exp $ */
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif /* HAVE_CONFIG_H */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>

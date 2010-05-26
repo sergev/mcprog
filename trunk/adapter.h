@@ -53,7 +53,7 @@ struct _adapter_t {
         unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0);
 };
 
-adapter_t *adapter_open_usb (void);
+adapter_t *adapter_open_usb (int need_reset);
 adapter_t *adapter_open_lpt (void);
 adapter_t *adapter_open_bitbang (void);
 adapter_t *adapter_open_mpsse (void);

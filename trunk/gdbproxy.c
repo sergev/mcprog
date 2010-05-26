@@ -59,10 +59,6 @@
 
 #define VERSION         "1.8"
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif /* HAVE_CONFIG_H */
-
 #if defined(WIN32)
 #include <windows.h>
 #endif
