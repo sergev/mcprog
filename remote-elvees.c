@@ -4,10 +4,6 @@
  * Реализация интерфейса к процессорам Элвис MIPS32
  * через адаптер JTAG-USB.
  */
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif /* HAVE_CONFIG_H */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -248,7 +244,7 @@ static int elvees_open(int argc,
     if (! target.device) {
         /* Если первый раз - соединяемся с адаптером.
          * Не надо давать SYSRST процессору! */
-        target.device = target_open ();
+        target.device = target_open (0);
         if (! target.device) {
             target.log(RP_VAL_LOGLEVEL_ERR,
                             "%s: failed to initialize JTAG adapter",

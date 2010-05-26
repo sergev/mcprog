@@ -1,6 +1,6 @@
 typedef struct _target_t target_t;
 
-target_t *target_open (void);
+target_t *target_open (int need_reset);
 void target_close (target_t *mc);
 
 unsigned target_idcode (target_t *mc);

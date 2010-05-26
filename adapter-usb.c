@@ -699,7 +699,7 @@ static void usb_close_adapter (adapter_t *adapter)
  * Возвращаем указатель на структуру данных, выделяемую динамически.
  * Если адаптер не обнаружен, возвращаем 0.
  */
-adapter_t *adapter_open_usb (void)
+adapter_t *adapter_open_usb (int need_reset)
 {
     static const unsigned char pkt_reset[8] = {
         /* Посылаем команду чтения MEM, но с активным TRST. */
@@ -744,13 +744,13 @@ found:
 /*  bulk_cmd (a->usbdev, ADAPTER_PLL_48MHZ);*/
     mdelay (1);
 
-#ifndef HAVE_CONFIG_H
-    /* Делаем reset только для mcprog. */
-    bulk_cmd (a->usbdev, ADAPTER_ACTIVE_RESET);
-    mdelay (1);
-    bulk_cmd (a->usbdev, ADAPTER_DEACTIVE_RESET);
-    mdelay (1);
-#endif
+    if (need_reset) {
+        /* Делаем reset только для mcprog. */
+        bulk_cmd (a->usbdev, ADAPTER_ACTIVE_RESET);
+        mdelay (1);
+        bulk_cmd (a->usbdev, ADAPTER_DEACTIVE_RESET);
+        mdelay (1);
+    }
 
     /* Сброс OnCD. */
     bulk_write_read (a->usbdev, pkt_reset, 2, rb, 2);

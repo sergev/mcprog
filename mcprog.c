@@ -406,7 +406,7 @@ void do_probe ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open ();
+    target = target_open (1);
     if (! target) {
         fprintf (stderr, "Error detecting device -- check cable!\n");
         exit (1);
@@ -472,7 +472,7 @@ void do_program ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open ();
+    target = target_open (1);
     if (! target) {
         fprintf (stderr, "Error detecting device -- check cable!\n");
         exit (1);
@@ -534,7 +534,7 @@ void do_write ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open ();
+    target = target_open (1);
     if (! target) {
         fprintf (stderr, "Error detecting device -- check cable!\n");
         exit (1);
@@ -585,7 +585,7 @@ void do_read (char *filename)
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open ();
+    target = target_open (1);
     if (! target) {
         fprintf (stderr, "Error detecting device -- check cable!\n");
         exit (1);

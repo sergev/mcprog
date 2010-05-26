@@ -4,21 +4,33 @@ CFLAGS		= -Wall -g -O -DMINGW32 -Ilibusb-win32
 LDFLAGS		= -s
 LIBS		= -Llibusb-win32 -lusb
 
-OBJS		= mcprog.o target.o conf.o
-OBJS		+= adapter-usb.o
-OBJS		+= adapter-lpt.o
-OBJS		+= adapter-bitbang.o
-OBJS		+= adapter-mpsse.o
+COMMON_OBJS     = target.o
+COMMON_OBJS     += adapter-usb.o
+COMMON_OBJS	+= adapter-lpt.o
+COMMON_OBJS	+= adapter-bitbang.o
+COMMON_OBJS	+= adapter-mpsse.o
 
-all:		mcprog.exe
+PROG_OBJS	= mcprog.o conf.o $(COMMON_OBJS)
 
-mcprog.exe:	$(OBJS) mcprog.o
-		$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
+
+all:		mcprog.exe mcremote.exe
+
+mcprog.exe:	$(PROG_OBJS)
+		$(CC) -o $@ $(PROG_OBJS) $(LIBS)
+
+mcremote.exe:	$(REMOTE_OBJS)
+		$(CC) -o $@ $(REMOTE_OBJS) $(LIBS)
 
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
 adapter-lpt.o: adapter-lpt.c adapter.h oncd.h
+adapter-mpsse.o: adapter-mpsse.c adapter.h oncd.h
 adapter-usb.o: adapter-usb.c adapter.h oncd.h
 conf.o: conf.c conf.h
+gdbproxy.o: gdbproxy.c gdbproxy.h
 mcprog.o: mcprog.c target.h conf.h
-target.o: target.c target.h adapter.h oncd.h
+remote-elvees.o: remote-elvees.c gdbproxy.h target.h
+remote-skeleton.o: remote-skeleton.c gdbproxy.h
+rpmisc.o: rpmisc.c gdbproxy.h
+target.o: target.c target.h adapter.h oncd.h mips.h
