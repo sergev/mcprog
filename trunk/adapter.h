@@ -3,15 +3,6 @@
  */
 #include <stdarg.h>
 
-#ifdef HAVE_CONFIG_H
-    /* Сборка для gdbproxy */
-    extern int rp_debug_level;
-#   define debug_level rp_debug_level
-#else
-    /* Сборка для mcprog. */
-    extern int debug_level;
-#endif
-
 typedef struct _adapter_t adapter_t;
 
 struct _adapter_t {
@@ -68,4 +59,4 @@ adapter_t *adapter_open_bitbang (void);
 adapter_t *adapter_open_mpsse (void);
 
 void mdelay (unsigned msec);
-extern int debug;
+extern int debug_level;
