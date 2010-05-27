@@ -1,66 +1,38 @@
-/* Copyright (C) 1999-2001 Quality Quorum, Inc.
-   Copyright (C) 2002 Chris Liechti and Steve Underwood
-
-   Redistribution and use in source and binary forms, with or without
-   modification, are permitted provided that the following conditions are met:
-
-     1. Redistributions of source code must retain the above copyright notice,
-        this list of conditions and the following disclaimer.
-     2. Redistributions in binary form must reproduce the above copyright
-        notice, this list of conditions and the following disclaimer in the
-        documentation and/or other materials provided with the distribution.
-     3. The name of the author may not be used to endorse or promote products
-        derived from this software without specific prior written permission.
-
-   THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
-   WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-   MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
-   EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-   PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
-   OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-   WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-   OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-   ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-   QQI can be contacted as qqi@world.std.com
-
-
-   Main remote proxy unit.
-
-   Exported Data:
-     None
-
-   Imported Data:
-     None
-
-   Static Data:
-     rp_t_list            - list of targets
-     debug_level          - debug flag
-     rp_target_out_valid  - to help catch uunappropriate output
-                            from target
-     rp_log               - pointer to a current log function
-
-   Global Functions:
-     main        - main
-
-   Static Functions:
-     rp_putpkt          - send packet to debugger
-     rp_getpkt          - get packet from debugger
-     rp_console_output  - send output to debugger console
-     rp_data_output     - send data to debugger (used remcmd)
-     rp_decode_xxxxx    - various decode functions
-     rp_encode_xxxxx    - various encode functions
-     rp_usage           - usage/help
-     rp_write_xxxxx     - encode result of operation
-
-
-   $Id: gdbproxy.c,v 1.4 2005/08/21 06:51:56 coppice Exp $ */
-
+/*
+ * Main remote proxy unit.
+ *
+ * Copyright (C) 1999-2001 Quality Quorum, Inc.
+ *  Copyright (C) 2002 Chris Liechti and Steve Underwood
+ *  Copyright (C) 2010 Serge Vakulenko
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions are met:
+ *
+ *    1. Redistributions of source code must retain the above copyright notice,
+ *       this list of conditions and the following disclaimer.
+ *    2. Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *    3. The name of the author may not be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ *  EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ *  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ *  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ *  OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ *  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ *  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *  QQI can be contacted as qqi@world.std.com
+ */
 #define VERSION         "1.8"
 
 #if defined(WIN32)
-#include <windows.h>
+#   include <windows.h>
 #endif
 
 #include <stdint.h>
@@ -72,9 +44,6 @@
 #include <getopt.h>
 
 #include "gdbproxy.h"
-
-/* Target list */
-static rp_target *rp_t_list;
 
 /* Debug flag */
 int debug_level = 0;
@@ -1120,15 +1089,15 @@ int main (int argc, char **argv)
     /* Option descriptors */
     static struct option long_options[] =
     {
-        {"help",     0, 0, 1},
+        {"help",     0, 0, 'h'},
 #ifndef WIN32
-        {"daemon",   0, 0, 2},
+        {"daemon",   0, 0, 'd'},
 #endif /* WIN32 */
-        {"debug",    0, 0, 3},
-        {"port",     1, 0, 4},
-        {"warranty", 0, 0, 5},
-        {"copying",  0, 0, 6},
-        {"version",  0, 0, 7},
+        {"debug",    0, 0, 'D'},
+        {"port",     1, 0, 'p'},
+        {"warranty", 0, 0, 'W'},
+        {"copying",  0, 0, 'C'},
+        {"version",  0, 0, 'V'},
         {NULL,  0, 0, 0}
     };
 
@@ -1155,7 +1124,6 @@ int main (int argc, char **argv)
     }
 
     /* Initialize everything */
-    rp_t_list = &elvees_target;
     dbg_sock_init();
     port = 0;
     doing_help   = FALSE;
@@ -1166,31 +1134,28 @@ int main (int argc, char **argv)
     /* Process options */
     for (;;)
     {
-        int c;
-        int option_index;
-
-        c = getopt_long_only(argc, argv, "+", long_options, &option_index);
+        int c = getopt_long(argc, argv, "hdDp:WCV", long_options, 0);
 
         if (c == EOF)
             break;
 
         switch (c)
         {
-        case 1:
+        case 'h':
             /* help */
             doing_help = TRUE;
             break;
 #ifndef WIN32
-        case 2:
+        case 'd':
             /* daemon */
             doing_daemon = TRUE;
             break;
 #endif /* WIN32 */
-        case 3:
+        case 'D':
             /* debug */
             debug_level++;
             break;
-        case 4:
+        case 'p':
             /* port */
             port = atoi(optarg);
             if (port == 0  ||  port > 0xFFFF)
@@ -1199,15 +1164,15 @@ int main (int argc, char **argv)
                 exit(1);
             }
             break;
-        case 5:
+        case 'W':
             /* warranty */
             rp_show_warranty();
             return 0;
-        case 6:
+        case 'C':
             /* copying */
             rp_show_copying();
             return 0;
-        case 7:
+        case 'V':
             /* version */
             printf("Remote proxy for GDB, version %s\n\n", VERSION);
             return 0;
@@ -1226,20 +1191,7 @@ int main (int argc, char **argv)
     printf("'--copying' option for details.\n\n");
 
     /* Find the target */
-    t = rp_t_list;
-    if (optind < argc) {
-        for (t=rp_t_list; ; t=t->next) {
-            if (t == NULL) {
-                printf("Target %s not present,\n", argv[optind]);
-                printf("use '%s --help' to see a complete list of targets\n", name);
-                exit(1);
-            }
-            assert(t->name != NULL);
-            if (strcmp(t->name, argv[optind]) == 0)
-                break;
-        }
-    }
-    assert(t->help != NULL);
+    t = &elvees_target;
     assert(t->open != NULL);
     assert(t->close != NULL);
     assert(t->connect != NULL);
@@ -1270,8 +1222,10 @@ int main (int argc, char **argv)
 
     if (doing_help)
     {
-        assert(t->help != NULL);
-        t->help(name);
+        if (t->help != NULL)
+            t->help(name);
+        else
+            rp_usage();
         exit(0);
     }
 
@@ -2682,36 +2636,55 @@ static void rp_encode_byte(unsigned int val, char *out)
 /* Print usage */
 static void rp_usage(void)
 {
-    rp_target *t;
-
-    printf("This is MCremote - a remote proxy for the GNU debugger, GDB.\n\n");
-    printf("Usage:\n");
-    printf("  %s [options] [target [target-options] [target-args]]\n", name);
-    printf("\nOptions:\n");
-    printf("  --copying            print copying information\n");
+    printf ("Usage:\n");
+    printf ("       %s [options]\n", name);
+    printf ("\nOptions:\n");
 #ifndef WIN32
-    printf("  --daemon             run %s as daemon\n", name);
+    printf ("       -d, --daemon        run %s as daemon\n", name);
 #endif /* WIN32 */
-    printf("  --debug              run %s in debug mode\n", name);
-    printf("  --help               `%s --help' prints this message\n", name);
+    printf ("       -p, --port=PORT     use the specified TCP port (default %d)\n",
+        RP_PARAM_SOCKPORT_MIN);
+    printf ("       -D, --debug         run %s in debug mode\n", name);
+    printf ("       -h, --help          `%s --help' prints this message\n", name);
+    printf ("       -V, --version       print version\n");
+    printf ("       -C, --copying       print copying information\n");
+    printf ("       -W, --warranty      print warranty information\n");
+    printf ("\n");
+}
 
+/* Print copying part of license */
+void rp_show_copying(void)
+{
+    printf("Original rproxy: Copyright (C) 1999-2001 Quality Quorum, Inc.\n");
+    printf("GDBproxy adaptation: Copyright (C) 2002 Chris Liechti and Steve Underwood.\n");
+    printf("MCremote for MIPS32: Copyright (C) 2010 Serge Vakulenko.\n");
+    printf("\n");
+    printf("Redistribution and use in source and binary forms, with or without\n");
+    printf("modification, are permitted provided that the following conditions are met:\n");
+    printf("\n");
+    printf("  1. Redistributions of source code must retain the above copyright notice,\n");
+    printf("     this list of conditions and the following disclaimer.\n");
+    printf("  2. Redistributions in binary form must reproduce the above copyright\n");
+    printf("     notice, this list of conditions and the following disclaimer in the\n");
+    printf("     documentation and/or other materials provided with the distribution.\n");
+    printf("  3. The name of the author may not be used to endorse or promote products\n");
+    printf("     derived from this software without specific prior written permission.\n");
+    printf("\n");
+}
 
-    printf("                       `%s --help target' prints target's help\n",
-           name);
-    printf("  --port=PORT          use the specified TCP port\n");
-    printf("  --version            print version\n");
-    printf("  --warranty           print warranty information\n");
-
-    printf("\nSupported targets:\n");
-
-    for (t = rp_t_list;  t != NULL;  t = t->next)
-    {
-        assert(t->name != NULL);
-        assert(t->desc != NULL);
-
-        printf("  %-20s %s\n", t->name, t->desc);
-    }
-
+/* Print NO WARRANTY part of license */
+void rp_show_warranty(void)
+{
+    printf("THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED\n");
+    printf("WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF\n");
+    printf("MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO\n");
+    printf("EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n");
+    printf("SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,\n");
+    printf("PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;\n");
+    printf("OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,\n");
+    printf("WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR\n");
+    printf("OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF\n");
+    printf("ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n");
     printf("\n");
 }
 

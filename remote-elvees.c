@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright (C) 2010 Serge Vakulenko
  *
  * Реализация интерфейса к процессорам Элвис MIPS32
@@ -40,7 +40,6 @@
 /*
  * Методы целевой платформы.
  */
-static void elvees_help (const char *prog_name);
 static int  elvees_open (int argc, char * const argv[],
                         const char *prog_name, log_func log_fn);
 static void elvees_close (void);
@@ -108,10 +107,10 @@ typedef struct {
  * Глобальный описатель целевой платформы.
  */
 rp_target elvees_target = {
-    NULL,      /* next */
+    NULL,       /* next */
     "elvees",
     "Elvees MIPS32 processor",
-    elvees_help,
+    NULL,       /* help*/
     elvees_open,
     elvees_close,
     elvees_connect,
@@ -169,24 +168,6 @@ static void DEBUG_OUT(const char *string,...)
 
 /*
  * Target method.
- * Вызывается по команде "mcremote --help".
- */
-static void elvees_help(const char *prog_name)
-{
-    printf("This is the elvees target for the GDB proxy server. Usage:\n\n");
-    printf("  %s [options] [jtag-num]\n",
-           prog_name);
-    printf("\nOptions:\n\n");
-    printf("  --debug              run %s in debug mode\n", prog_name);
-    printf("  --help               `%s --help %s'  prints this message\n",
-           prog_name,
-           elvees_target.name);
-    printf("  --port=PORT          use the specified TCP port\n");
-    return;
-}
-
-/*
- * Target method.
  * Установление соединения с JTAG-адаптером.
  * Вызывается при старте mcremote и каждый раз после отсоединения отладчика.
  */
@@ -229,10 +210,9 @@ static int elvees_open(int argc,
             break;
         default:
             target.log(RP_VAL_LOGLEVEL_NOTICE,
-                                "%s: Use `%s --help %s' to see a complete list of options",
+                                "%s: Use `%s --help' to see a complete list of options",
                                 elvees_target.name,
-                                prog_name,
-                                elvees_target.name);
+                                prog_name);
             return RP_VAL_TARGETRET_ERR;
         }
     }

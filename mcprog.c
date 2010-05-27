@@ -20,11 +20,13 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <signal.h>
+#include <getopt.h>
 #include <sys/time.h>
 #include "target.h"
 #include "conf.h"
 
 #define PROGNAME        "Programmer for Elvees MIPS32 processors"
+#define COPYRIGHT       "Copyright (C) 2010 Serge Vakulenko"
 #define VERSION         "1.8"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
@@ -623,14 +625,68 @@ void do_read (char *filename)
     fclose (fd);
 }
 
+/*
+ * Print copying part of license
+ */
+static void gpl_show_copying (void)
+{
+    printf (COPYRIGHT ".\n");
+    printf ("\n");
+    printf ("This program is free software; you can redistribute it and/or modify\n");
+    printf ("it under the terms of the GNU General Public License as published by\n");
+    printf ("the Free Software Foundation; either version 2 of the License, or\n");
+    printf ("(at your option) any later version.\n");
+    printf ("\n");
+    printf ("This program is distributed in the hope that it will be useful,\n");
+    printf ("but WITHOUT ANY WARRANTY; without even the implied warranty of\n");
+    printf ("MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n");
+    printf ("GNU General Public License for more details.\n");
+    printf ("\n");
+}
+
+/*
+ * Print NO WARRANTY part of license
+ */
+static void gpl_show_warranty (void)
+{
+    printf (COPYRIGHT ".\n");
+    printf ("\n");
+    printf ("BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY\n");
+    printf ("FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW.  EXCEPT WHEN\n");
+    printf ("OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES\n");
+    printf ("PROVIDE THE PROGRAM \"AS IS\" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED\n");
+    printf ("OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF\n");
+    printf ("MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS\n");
+    printf ("TO THE QUALITY AND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE\n");
+    printf ("PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY SERVICING,\n");
+    printf ("REPAIR OR CORRECTION.\n");
+    printf("\n");
+    printf ("IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING\n");
+    printf ("WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR\n");
+    printf ("REDISTRIBUTE THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES,\n");
+    printf ("INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING\n");
+    printf ("OUT OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED\n");
+    printf ("TO LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY\n");
+    printf ("YOU OR THIRD PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER\n");
+    printf ("PROGRAMS), EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE\n");
+    printf ("POSSIBILITY OF SUCH DAMAGES.\n");
+    printf("\n");
+}
+
 int main (int argc, char **argv)
 {
     int ch, read_mode = 0, memory_write_mode = 0;
+    static const struct option long_options[] = {
+        { "help",        0, 0, 'h' },
+        { "warranty",    0, 0, 'W' },
+        { "copying",     0, 0, 'C' },
+        { "version",     0, 0, 'V' },
+        { NULL,          0, 0, 0 },
+    };
 
     setvbuf (stdout, (char *)NULL, _IOLBF, 0);
     setvbuf (stderr, (char *)NULL, _IOLBF, 0);
     printf (PROGNAME ", Version " VERSION "\n");
-    printf ("Copyright (C) 2010 Serge Vakulenko\n");
     progname = argv[0];
     signal (SIGINT, interrupted);
 #ifdef __linux__
@@ -638,7 +694,8 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt(argc, argv, "vDhrwb:s:cg:")) != -1) {
+    while ((ch = getopt_long (argc, argv, "vDhrwb:s:cg:CVW",
+      long_options, 0)) != -1) {
         switch (ch) {
         case 'c':
             ++check_erase;
@@ -666,8 +723,22 @@ int main (int argc, char **argv)
             continue;
         case 'h':
             break;
+        case 'V':
+            /* Version already printed above. */
+            return 0;
+        case 'C':
+            gpl_show_copying ();
+            return 0;
+        case 'W':
+            gpl_show_warranty ();
+            return 0;
         }
 usage:
+        printf (COPYRIGHT ".\n\n");
+        printf ("MCprog comes with ABSOLUTELY NO WARRANTY; for details\n");
+        printf ("use `--warranty' option. This is Open Source software. You are\n");
+        printf ("welcome to redistribute it under certain conditions. Use the\n");
+        printf ("'--copying' option for details.\n\n");
         printf ("Probe:\n");
         printf ("       mcprog\n");
         printf ("\nWrite flash memory:\n");
@@ -679,19 +750,26 @@ usage:
         printf ("\nRead memory:\n");
         printf ("       mcprog -r file.bin address length\n");
         printf ("\nArgs:\n");
-        printf ("       file.sre    Code file SREC format\n");
-        printf ("       file.bin    Code file in binary format\n");
-        printf ("       address     Address of flash memory, default 0x%08X\n",
+        printf ("       file.sre        Code file SREC format\n");
+        printf ("       file.bin        Code file in binary format\n");
+        printf ("       address         Address of flash memory, default 0x%08X\n",
             DEFAULT_ADDR);
-        printf ("       -c          Check clean\n");
-        printf ("       -v          Verify only\n");
-        printf ("       -w          Memory write mode\n");
-        printf ("       -r          Read mode\n");
-        printf ("       -b name     Specify board name\n");
-        printf ("       -s addr     Compute and store checksum\n");
-        printf ("       -g addr     Start execution from address\n");
-        exit (0);
+        printf ("       -c              Check clean\n");
+        printf ("       -v              Verify only\n");
+        printf ("       -w              Memory write mode\n");
+        printf ("       -r              Read mode\n");
+        printf ("       -b name         Specify board name\n");
+        printf ("       -s addr         Compute and store checksum\n");
+        printf ("       -g addr         Start execution from address\n");
+        printf ("       -D              Debug mode\n");
+        printf ("       -h, --help      Print this help message\n");
+        printf ("       -V, --version   print version\n");
+        printf ("       -C, --copying   print copying information\n");
+        printf ("       -W, --warranty  print warranty information\n");
+        printf ("\n");
+        return 0;
     }
+    printf (COPYRIGHT ".\n");
     argc -= optind;
     argv += optind;
 

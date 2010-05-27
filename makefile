@@ -17,22 +17,23 @@ REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
 all:		mcprog mcremote #adapter-bitbang adapter-mpsse
 
 mcprog:		$(PROG_OBJS)
-		$(CC) -o $@ $(PROG_OBJS) $(LIBS)
+		$(CC) $(LDFLAGS) -o $@ $(PROG_OBJS) $(LIBS)
 
 mcremote:	$(REMOTE_OBJS)
-		$(CC) -o $@ $(REMOTE_OBJS) $(LIBS)
+		$(CC) $(LDFLAGS) -o $@ $(REMOTE_OBJS) $(LIBS)
 
 adapter-bitbang: adapter-bitbang.c
-		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c $(LIBS)
+		$(CC) $(LDFLAGS) $(CFLAGS) -DSTANDALONE -o $@ adapter-bitbang.c $(LIBS)
 
 adapter-mpsse: adapter-mpsse.c
-		$(CC) $(CFLAGS) -DSTANDALONE -o $@ adapter-mpsse.c $(LIBS)
+		$(CC) $(LDFLAGS) $(CFLAGS) -DSTANDALONE -o $@ adapter-mpsse.c $(LIBS)
 
 clean:
-		rm -f *~ *.o core mcprog mcprog.exe mcremote mcremote.exe adapter-bitbang adapter-mpsse
+		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse
 
-install:	mcprog mcprog.conf
+install:	mcprog mcremote mcprog.conf
 		install -c -s mcprog /usr/local/bin/mcprog
+		install -c -s mcremote /usr/local/bin/mcremote
 		[ -f //usr/local/etc/mcprog.conf ] || install -c -m644 mcprog.conf /usr/local/etc/mcprog.conf
 
 ###
