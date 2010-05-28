@@ -466,6 +466,8 @@ void do_program ()
         memory_base + memory_len, memory_len);
     if (checksum_addr) {
         /* Store length and checksum. */
+        *(unsigned*) (memory_data + checksum_addr) = 0;
+        *(unsigned*) (memory_data + checksum_addr + 4) = 0;
         sum = compute_checksum (memory_data, memory_len);
         *(unsigned*) (memory_data + checksum_addr) = memory_len;
         *(unsigned*) (memory_data + checksum_addr + 4) = sum;
