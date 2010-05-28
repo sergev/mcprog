@@ -9,8 +9,8 @@
 || *Адаптер* || *Интерфейс* || *Скорость прошивки* || *Шаг в отладчике* || *Цена*      ||
 || USB-JTAG  || USB         || 24 кбайт/сек        || доли секунды      || 35 тыс.руб. ||
 || JTAG-EPP  || LPT         || 4 кбайт/сек         || (?)               || 17 тыс.руб. ||
-|| ARM-USB-Tiny || USB      || 4 кбайт/сек         || 1 секунда         || [http://chipdip.ru/product1/1804429022.aspx 4 тыс.руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=8278 $52] ||
-|| Bitbang-JTAG || USB      || 500 байт/сек (?)    || 6 секунд          || [http://chipdip.ru/product0/9000043502.aspx 1600 руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=718 $13] ||
+|| ARM-USB-Tiny || USB      || 3.5 кбайт/сек       || 1 секунда         || [http://chipdip.ru/product1/1804429022.aspx 4 тыс.руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=8278 $52] ||
+|| Bitbang-JTAG || USB      || 40 байт/сек         || 6 секунд          || [http://chipdip.ru/product0/9000043502.aspx 1600 руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=718 $13] ||
 
 Скорость прошивки дана для записи 32-битной flash-памяти на плате Элвис MC-24R_EM утилитой MCPROG под операционной системой Linux.
 
@@ -22,6 +22,8 @@
 = Элвис JTAG-EPP =
 || [http://mcprog.googlecode.com/svn/wiki/images/jtag-epp.jpg] ||
 
+Адаптер, подключающийся к параллельному порту. Есть проблемы совместимости: не всякий параллельный порт годится.
+
 = Olimex ARM-USB-Tiny =
 || [http://mcprog.googlecode.com/svn/wiki/images/arm-usb-tiny.jpg] ||
 
@@ -32,6 +34,6 @@
 = Самодельный Bitbang-JTAG =
 || [http://mcprog.googlecode.com/svn/wiki/images/ft232rl-breakout.jpg] ||
 
-Простой самодельный адаптер. Схема приведена ниже. Невысокая скорость компенсируется низкой себестоимостью.
+Простой самодельный адаптер. Схема приведена ниже. Скорость о-о-очень низкая. Отлаживаться весьма некомфортно, а прошивка flash-памяти занимает слишком много времени.
 
 [http://mcprog.googlecode.com/svn/wiki/images/prog-bitbang-sch.png]
