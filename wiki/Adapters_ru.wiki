@@ -19,17 +19,18 @@
 Адаптер имеет очень высокую скорость пересылки данных. Поддерживается фирменной утилитой отладки Элвис MDB и средой разработки MCStudio.
 
 = Элвис JTAG-EPP =
-[http://mcprog.googlecode.com/svn/wiki/images/jtag-epp.jpg]
+|| [http://mcprog.googlecode.com/svn/wiki/images/jtag-epp.jpg] ||
 
 = Olimex ARM-USB-Tiny =
-[http://mcprog.googlecode.com/svn/wiki/images/arm-usb-tiny.jpg]
+|| [http://mcprog.googlecode.com/svn/wiki/images/arm-usb-tiny.jpg] ||
 
 Недорогой универсальный USB-программатор. Несмотря на название, годится не только для процессоров ARM, а для любых архитектур. Поддерживается утилитой OpenOCD. Для процессоров Мультикор требуется переходник по следующей схеме:
 
 [http://mcprog.googlecode.com/svn/wiki/images/prog-olimex-tiny.png]
 
 = Самодельный Bitbang-JTAG =
-[http://mcprog.googlecode.com/svn/wiki/images/ft232rl-breakout.jpg]
+|| [http://mcprog.googlecode.com/svn/wiki/images/ft232rl-breakout.jpg] ||
+
 Простой самодельный адаптер. Схема приведена ниже. Невысокая скорость компенсируется низкой себестоимостью.
 
 [http://mcprog.googlecode.com/svn/wiki/images/prog-bitbang-sch.png]
