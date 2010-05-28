@@ -5,11 +5,13 @@
 Для программирования и отладки систем на микропроцессорах Мультикор MIPS32 традиционно используются программаторы НПЦ "Элвис": [http://multicore.ru/index.php?id=667 USB-JTAG] и [http://multicore.ru/index.php?id=54 JTAG-EPP]. Но есть и альтернативные варианты: [http://www.olimex.com/dev/arm-usb-tiny.html Olimex ARM-USB-Tiny] и [http://vak.ru/doku.php/proj/bitbang/bitbang-jtag Bitbang-JTAG].
 
 Сравнительные характеристики:
+
 || *Адаптер* || *Интерфейс* || *Скорость прошивки* || *Шаг в отладчике* || *Цена*      ||
 || USB-JTAG  || USB         || 24 кбайт/сек        || доли секунды      || 35 тыс.руб. ||
 || JTAG-EPP  || LPT         || 4 кбайт/сек         || (?)               || 17 тыс.руб. ||
 || ARM-USB-Tiny || USB      || 4 кбайт/сек         || 1 секунда         || [http://chipdip.ru/product1/1804429022.aspx 4 тыс.руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=8278 $52] ||
 || Bitbang-JTAG || USB      || 500 байт/сек (?)    || 6 секунд          || [http://chipdip.ru/product0/9000043502.aspx 1600 руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=718 $13] ||
+
 Скорость прошивки дана для записи 32-битной flash-памяти утилитой MCPROG на плате Элвис MC-24R_EM.
 
 = Элвис USB-JTAG =
