@@ -10,6 +10,7 @@
 || JTAG-EPP  || LPT         || 4 кбайт/сек         || (?)               || 17 тыс.руб. ||
 || ARM-USB-Tiny || USB      || 4 кбайт/сек         || 1 секунда         || [http://chipdip.ru/product1/1804429022.aspx 4 тыс.руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=8278 $52] ||
 || Bitbang-JTAG || USB      || 500 байт/сек (?)    || 6 секунд          || [http://chipdip.ru/product0/9000043502.aspx 1600 руб.] или [http://www.sparkfun.com/commerce/product_info.php?products_id=718 $13] ||
+Скорость прошивки дана для записи 32-битной flash-памяти утилитой MCPROG на плате Элвис MC-24R_EM.
 
 = Элвис USB-JTAG =
 [http://mcprog.googlecode.com/svn/wiki/images/usb-jtag.jpg]
