@@ -8,13 +8,13 @@
 || xxx || yyy ||
 
 = Элвис USB-JTAG =
-[images/usb-jtag.jpg]
+[http://code.google.com/p/mcprog/wiki/images/usb-jtag.jpg]
 
 = Элвис JTAG-EPP =
-[images/jtag-epp.jpg]
+[http://code.google.com/p/mcprog/wiki/images/jtag-epp.jpg]
 
 = Olimex ARM-USB-Tiny =
-[images/arm-usb-tiny.jpg]
+[http://code.google.com/p/mcprog/wiki/images/arm-usb-tiny.jpg]
 
 = Самодельный Bitbang-JTAG =
-[images/ft232rl-breakout.jpg]
+[http://code.google.com/p/mcprog/wiki/images/ft232rl-breakout.jpg]
