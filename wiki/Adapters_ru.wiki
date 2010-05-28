@@ -17,4 +17,4 @@
 [http://www.olimex.com/dev/images/ARM/ARM-USB-TINY.jpg]
 
 = Самодельный Bitbang-JTAG =
-[http://vak.ru/lib/exe/detail.php/proj/bitbang/ft232rl-breakout.jpg]
+[http://vak.ru/lib/exe/fetch.php/proj/bitbang/ft232rl-breakout.jpg]
