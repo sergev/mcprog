@@ -1,5 +1,20 @@
 #summary Программаторы для процессоров Элвис Мультикор
 
-= Программатор Olimex ARM-USB-Tiny для процессоров Мультикор MIPS32 =
+= Программаторы для процессоров Элвис Мультикор =
 
 Для программирования и отладки систем на микропроцессорах Мультикор MIPS32 традиционно используются программаторы НПЦ "Элвис": [http://multicore.ru/index.php?id=667 USB-JTAG] и [http://multicore.ru/index.php?id=54 JTAG-EPP]. Но есть и альтернативные варианты: [http://www.olimex.com/dev/arm-usb-tiny.html Olimex ARM-USB-Tiny] и [http://vak.ru/doku.php/proj/bitbang/bitbang-jtag Bitbang-JTAG].
+
+Сравнительные характеристики:
+|| xxx || yyy ||
+
+= Элвис USB-JTAG =
+[http://multicore.ru/fileadmin/user_upload/mc/pictures/USB_JTAG_s.jpg]
+
+= Элвис JTAG-EPP =
+[http://multicore.ru/fileadmin/user_upload/mc/pictures/JTAG-EPP_s.jpg]
+
+= Olimex ARM-USB-Tiny =
+[http://www.olimex.com/dev/images/ARM/ARM-USB-TINY.jpg]
+
+= Самодельный Bitbang-JTAG =
+[http://vak.ru/lib/exe/detail.php/proj/bitbang/ft232rl-breakout.jpg]
