@@ -16,6 +16,7 @@
 
 = Элвис USB-JTAG =
 || [http://mcprog.googlecode.com/svn/wiki/images/usb-jtag.jpg] ||
+
 Адаптер имеет очень высокую скорость пересылки данных. Поддерживается фирменной утилитой отладки Элвис MDB и средой разработки MCStudio.
 
 = Элвис JTAG-EPP =
