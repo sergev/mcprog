@@ -35,7 +35,10 @@ install:	mcprog mcremote mcprog.conf
 		install -c -s mcprog /usr/local/bin/mcprog
 		install -c -s mcremote /usr/local/bin/mcremote
 		[ -f //usr/local/etc/mcprog.conf ] || install -c -m644 mcprog.conf /usr/local/etc/mcprog.conf
-
+		if [ `uname` = Linux ]; then \
+		    chown root /usr/local/bin/mcprog /usr/local/bin/mcremote; \
+		    chmod 4755 /usr/local/bin/mcprog /usr/local/bin/mcremote; \
+		fi
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
 adapter-lpt.o: adapter-lpt.c adapter.h oncd.h
