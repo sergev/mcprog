@@ -19,7 +19,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-
+#include <errno.h>
 #include <usb.h>
 
 #include "adapter.h"
@@ -682,7 +682,7 @@ found:
     }
     a->usbdev = usb_open (dev);
     if (! a->usbdev) {
-        fprintf (stderr, "MPSSE: usb_open() failed\n");
+        fprintf (stderr, "MPSSE adapter: usb_open() failed\n");
         free (a);
         return 0;
     }
@@ -692,8 +692,11 @@ found:
     if (usb_control_msg (a->usbdev,
         USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
         SIO_RESET, 0, 1, 0, 0, 1000) != 0) {
-        fprintf (stderr, "FTDI reset failed\n");
-failed:     usb_release_interface (a->usbdev, 0);
+        if (errno == EPERM)
+            fprintf (stderr, "MPSSE adapter: superuser privileges needed.\n");
+        else
+            fprintf (stderr, "MPSSE adapter: FTDI reset failed\n");
+failed: usb_release_interface (a->usbdev, 0);
         usb_close (a->usbdev);
         free (a);
         return 0;

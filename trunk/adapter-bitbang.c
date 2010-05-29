@@ -21,7 +21,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-
+#include <errno.h>
 #include <usb.h>
 
 #include "adapter.h"
@@ -502,8 +502,11 @@ found:
     if (usb_control_msg (a->usbdev,
         USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
         SIO_RESET, 0, 0, 0, 0, 1000) != 0) {
-        fprintf (stderr, "FTDI reset failed\n");
-failed:     usb_release_interface (a->usbdev, 0);
+        if (errno == EPERM)
+            fprintf (stderr, "Bitbang adapter: superuser privileges needed.\n");
+        else
+            fprintf (stderr, "Bitbang adapter: FTDI reset failed\n");
+failed: usb_release_interface (a->usbdev, 0);
         usb_close (a->usbdev);
         free (a);
         return 0;
