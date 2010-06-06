@@ -1,111 +1,13 @@
-#summary MCPROG home page (Russian).
+MCPROG is a utility for loading data into a flash memory of Elvees Multicore CPU.
 
-= Утилита MCPROG =
-Утилита MCPROG предназначена для записи программного обеспечения в Flash-память микроконтроллеров [http://multicore.ru/index.php?id=27 Элвис Мультикор].
-В качестве программатора используется один из адаптеров:
- * адаптер [http://multicore.ru/index.php?id=54 JTAG-EPP], подключающийся к параллельному порту компьютера;
- * адаптер [http://multicore.ru/index.php?id=667 USB-JTAG], подключающийся к порту USB.
+Утилита MCPROG предназначена для записи программного обеспечения в Flash-память микроконтроллеров Элвис Мультикор.
 
-Поддерживаются чипы Flash-памяти:
- * AMD/Alliance 29LV800;
- * [http://www.sst.com/products/?inode=41429 SST 39VF800];
- * [http://www.sst.com/products/?inode=41419 SST 39VF6401B];
- * Ангстрем 1638РР1;
- * [http://milandr.ru/index.php?mact=Products,cntnt01,details,0&cntnt01productid=115&cntnt01returnid=68 Миландр 1636РР2У].
+[mcprog_ru Подробнее об утилите MCPROG >>>]
 
-= Вызов =
+----
 
-При вызове без параметров утилита MCPROG определяет тип процессора
-и flash-памяти, установленных на плате. Например:
+MCREMOTE is a utility for remote debugging Elvees Multicore CPUs.
 
-{{{
-% mcprog
-Processor: MC12 (id 20777001)
-Board: pkbi
-Flash at 1FC00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
-Flash at 1FA00000: SST 39VF800 (id 00BF 2781), 2 Mbytes, 32 bit wide
-Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
-}}}
+Утилита MCREMOTE предназначена для отладки программного обеспечения микроконтроллеров Элвис Мультикор.
 
-Запись в flash-память:
-{{{
-mcprog [-v] file.srec
-mcprog [-v] file.bin [address]
-}}}
-
-Запись в статическую память:
-{{{
-mcprog -w [-v] file.sreс
-mcprog -w [-v] file.bin [address]
-}}}
-
-Чтение памяти в файл:
-{{{
-mcprog -r file.bin address length
-}}}
-
-Параметры:
-  * file.srec - файл с прошивкой в [http://en.wikipedia.org/wiki/SREC_(file_format) формате SREC]
-  * file.bin - бинарный файл с прошивкой
-  * address - адрес flash-памяти, по умолчанию 0xBFC00000
-  * -v - без записи, только проверка памяти на совпадение
-  * -w - запись в статическую память
-  * -r - режим чтения
-  * -b name - выбор типа платы
-
-Входной файл должен иметь простой бинарный формат, или [http://en.wikipedia.org/wiki/SREC_(file_format) SREC]. Формат SREC предпочтительнее, так как в нём имеется информация об адресах программы. Преобразовать формат ELF или COFF или A.OUT в SREC можно командой objcopy, например:
-{{{
-objcopy -O srec firmware.elf firmware.srec
-}}}
-
-= Файл конфигурации =
-Утилита считывает параметры платы из файла конфигурации [http://code.google.com/p/mcprog/source/browse/trunk/mcprog.conf mcprog.conf].
-Файл должен находиться в текущем каталоге, либо в каталоге /usr/local/etc (для Linux), либо в каталоге утилиты "mcprog.exe" (для Windows).
-В файле для каждого типа платы задаются значения регистров CSR и CSCONi,
-а также диапазоны адресов секций flash-памяти. 
-
-Можно определять до 16 flash-секций вида "flash foobar = first-last". Здесь foobar - произвольное имя, first и last - первый и последний адреса секции.
-
-Тип платы задаётся при вызове флагом "-b", либо параметром "default"
-в конфигурационном файле.
-
-Пример файла конфигурации:
-{{{
-# Тип платы можно выбрать при вызове mcprog с помощью флага "-b".
-# Если флаг не задан, тип платы определяется параметром "default".
-default = mc24em-10
-
-# Демонстрационная плата MC-24EM от Элвис, генератор 10 МГц.
-[mc24em-10]
-        CSR    = 0x00010081     # Умножаем частоту на 8, до 80 МГц
-        CSCON3 = 0x00080000     # Статическая память: ширина 32 разряда,
-                                # 8 wait states
-
-# Плата ПКБИ разработки ИТМиВТ, генератор 16 МГц.
-# Три секции flash-памяти.
-[pkbi]
-        CSR    = 0x00010051     # Умножаем частоту на 5, до 80 МГц
-        CSCON3 = 0x00050000     # Память boot и param flash: ширина 32 разряда,
-                                # 5 wait states
-        CSCON1 = 0x009502FE     # Память main flash: ширина 64 разряда,
-                                # адрес 02000000, 5 wait states
-        flash boot  = 0x1FC00000-0x1FDFFFFF
-        flash param = 0x1FA00000-0x1FBFFFFF
-        flash main  = 0x02000000-0x023FFFFF
-}}}
-
-
-= Скачать =
-Версию для Windows можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-07-30.zip здесь]. Потребуется установить драйвер GIVEIO,
-позволяющий прямой доступ к параллельному порту:
- # Кладём giveio.sys в C:\WINDOWS\system32\drivers\
- # Запускаем install.reg
- # Перезагружаемся
-
-Версию для Linux можно скачать [http://mcprog.googlecode.com/files/mcprog-2009-07-30.tgz здесь].
-
-= Исходные тексты =
-Исходные тексты распространяются на условиях лицензии GPL. Их можно скачать через SVN командой:
-{{{
-svn checkout http://mcprog.googlecode.com/svn/trunk/ mcprog
-}}}
+[mcremote_ru Подробнее об утилите MCREMOTE >>>]
