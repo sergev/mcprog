@@ -1,10 +1,12 @@
+= mcprog = 
 MCPROG is a utility for loading data into a flash memory of Elvees Multicore CPU.
 
 Утилита MCPROG предназначена для записи программного обеспечения в Flash-память микроконтроллеров Элвис Мультикор.
 
 [mcprog_ru Подробнее об утилите MCPROG >>>]
 
-----
+
+= mcremote = 
 
 MCREMOTE is a utility for remote debugging Elvees Multicore CPUs.
 
