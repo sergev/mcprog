@@ -608,7 +608,9 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 
     t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
     t->adapter->oncd_write (t->adapter, 0, OnCD_MEM, 0);
-    if (t->is_running) {
+
+/* Адаптер Elvees USB-JTAG не работает, если не делать проверку RDYm. */
+//    if (t->is_running) {
         /* Если процессор запущен, обращение к памяти произойдёт не сразу.
          * Надо ждать появления бита RDYm в регистре OSCR. */
         for (count = 100; count != 0; count--) {
@@ -622,7 +624,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
                 t->adapter->oscr);
             exit (1);
         }
-    }
+//    }
     data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
 
     if (debug_level)
