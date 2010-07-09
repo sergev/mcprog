@@ -15,6 +15,8 @@
  * смотрите в прилагаемом файле 'COPYING.txt'.
  */
 
+#define NFLASH      16  /* Max flash regions. */
+
 typedef struct _target_t target_t;
 
 target_t *target_open (int need_reset);
@@ -63,3 +65,5 @@ void target_write_register (target_t *t, unsigned regno, unsigned val);
 
 void target_add_break (target_t *t, unsigned addr, int type);
 void target_remove_break (target_t *t, unsigned addr);
+
+unsigned target_flash_address (target_t *mc, unsigned flash_num);

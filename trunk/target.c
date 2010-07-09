@@ -26,8 +26,6 @@
 #include "oncd.h"
 #include "mips.h"
 
-#define NFLASH      16  /* Max flash regions. */
-
 struct _target_t {
     adapter_t   *adapter;
     const char  *cpu_name;
@@ -1580,4 +1578,9 @@ void target_remove_break (target_t *t, unsigned addr)
     t->adapter->oncd_write (t->adapter, omlr0, OnCD_OMLR0, 32);
     t->adapter->oncd_write (t->adapter, omlr1, OnCD_OMLR1, 32);
 //fprintf (stderr, "target_remove_break (%08x), obcr = %03x, omlr0 = %08x, omlr1 = %08x\n", addr, obcr, omlr0, omlr1);
+}
+
+unsigned target_flash_address (target_t *mc, unsigned flash_num)
+{
+    return mc->flash_base[flash_num];
 }

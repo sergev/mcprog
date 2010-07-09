@@ -22,8 +22,12 @@
 #include <signal.h>
 #include <getopt.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <libgen.h>
 #include "target.h"
 #include "conf.h"
+#include "swinfo.h"
 
 #define PROGNAME        "Programmer for Elvees MIPS32 processors"
 #define COPYRIGHT       "Copyright (C) 2010 Serge Vakulenko"
@@ -38,7 +42,6 @@
 unsigned char memory_data [0x800000];   /* Code - up to 8 Mbytes */
 int memory_len;
 unsigned memory_base;
-unsigned checksum_addr;
 unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
 int check_erase;
@@ -48,6 +51,7 @@ target_t *target;
 char *progname;
 char *confname;
 char *board;
+char *board_serial = 0;
 
 void *fix_time ()
 {
@@ -183,23 +187,42 @@ int read_srec (char *filename, unsigned char *output)
  * Compute data checksum using rot13 algorithm.
  * Link: http://vak.ru/doku.php/proj/hash/efficiency
  */
-unsigned compute_checksum (unsigned char *data, unsigned bytes)
+static unsigned compute_checksum (unsigned sum, const unsigned char *data, unsigned bytes)
 {
-    unsigned hash = 0;
-
     while (bytes-- > 0) {
-        hash += *data++;
-        hash -= (hash << 13) | (hash >> 19);
+        sum += *data++;
+        sum -= (sum << 13) | (sum >> 19);
         /* Two shifts are converted by GCC 4
          * to a single rotation instruction. */
     }
-    return hash;
+    return sum;
 }
 
 void print_symbols (char symbol, int cnt)
 {
     while (cnt-- > 0)
         putchar (symbol);
+}
+
+void print_board_info (sw_info *pinfo)
+{
+    struct tm *creat_date;
+    if (pinfo) {
+	if (isprint (pinfo->board_sn[0]))
+            printf ("Board serial number:      %s\n", pinfo->board_sn);
+	if (isprint (pinfo->sw_version[0]))
+            printf ("Software version:         %s\n", pinfo->sw_version);
+        if (isprint (pinfo->filename[0])) {
+            printf ("Software file name:       %s\n", pinfo->filename);
+			creat_date = localtime (&pinfo->time);
+            printf ("Date of creation:         %02d.%02d.%04d\n",
+                     creat_date->tm_mday, creat_date->tm_mon + 1, creat_date->tm_year + 1900);
+            printf ("Memory size:              %d\n", pinfo->len);
+            printf ("CRC:                      %08X\n\n", pinfo->crc);
+        }
+    } else {
+        printf ("No information\n\n");
+    }
 }
 
 void program_block (target_t *mc, unsigned addr, int len)
@@ -454,24 +477,50 @@ static int check_clean (target_t *t, unsigned addr)
     return 1;
 };
 
-void do_program ()
+void do_program (char *filename, int store_info)
 {
-    unsigned addr, sum;
+    unsigned addr;
     unsigned mfcode, devcode, bytes, width;
     char mfname[40], devname[40];
     int len;
     void *t0;
+    sw_info *pinfo;
+	sw_info zero_sw_info;
+    struct stat file_stat;
 
     printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
         memory_base + memory_len, memory_len);
-    if (checksum_addr) {
+
+    if (store_info) {
         /* Store length and checksum. */
-        *(unsigned*) (memory_data + checksum_addr) = 0;
-        *(unsigned*) (memory_data + checksum_addr + 4) = 0;
-        sum = compute_checksum (memory_data, memory_len);
-        *(unsigned*) (memory_data + checksum_addr) = memory_len;
-        *(unsigned*) (memory_data + checksum_addr + 4) = sum;
-        printf ("Checksum: %08X at address %08X\n", sum, checksum_addr);
+	len = (memory_len < AREA_SIZE) ? (memory_len) : (AREA_SIZE);
+        pinfo = find_info ((char *)memory_data, len);
+        if (!pinfo) {
+                printf ("No software information label found. Did you labeled it with verstamp utility?\n");
+                exit(1);
+        }
+        memset ( &pinfo->len, 0, sizeof(sw_info) - sizeof(pinfo->label));
+        pinfo->len = memory_len;
+        if (board_serial) {
+	    if (strlen (board_serial) > sizeof(pinfo->board_sn))
+		printf ("Warning: board number is too large. Must be %d bytes at most. Will be cut\n",
+			sizeof(pinfo->board_sn));
+	    strcpy (pinfo->board_sn, board_serial);
+	}
+	strcpy (pinfo->filename, basename(filename));
+	stat (filename, &file_stat);
+	pinfo->time = file_stat.st_mtime;
+
+	/* Calculating checksum by parts. Instead of sw_info zeroes are summed */
+	memset ( &zero_sw_info, 0, sizeof(sw_info));
+	pinfo->crc = compute_checksum (0, memory_data, (char*)pinfo - (char*)memory_data);
+	pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) &zero_sw_info, sizeof(sw_info));
+	pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) pinfo + sizeof(sw_info),
+	     memory_len - ((char *)pinfo + sizeof(sw_info) - (char *)memory_data));
+
+	printf ("\nLoaded software information:");
+	printf ("\n----------------------------\n");
+        print_board_info (pinfo);
     }
 
     /* Open and detect the device. */
@@ -627,6 +676,35 @@ void do_read (char *filename)
     fclose (fd);
 }
 
+
+void do_info()
+{
+    sw_info *pinfo;
+
+    target = target_open (1);
+    if (! target) {
+        fprintf (stderr, "Error detecting device -- check cable!\n");
+        exit (1);
+    }
+
+    target_stop (target);
+    configure ();
+
+    unsigned i;
+    unsigned flash_base;
+    for (i = 0; i < NFLASH; ++i) {
+	flash_base = target_flash_address(target, i);
+        if (flash_base == ~0) break;
+
+        target_read_block (target, flash_base, (AREA_SIZE + 3) / 4, (unsigned *)memory_data);
+
+        printf ("\nFlash #%d, address %08X\n", i, flash_base);
+	printf ("----------------------------------\n");
+        pinfo = find_info ((char *)memory_data, AREA_SIZE);
+        print_board_info (pinfo);
+    }
+}
+
 /*
  * Print copying part of license
  */
@@ -677,7 +755,7 @@ static void gpl_show_warranty (void)
 
 int main (int argc, char **argv)
 {
-    int ch, read_mode = 0, memory_write_mode = 0;
+    int ch, read_mode = 0, memory_write_mode = 0, info_mode = 0, store_info = 0;
     static const struct option long_options[] = {
         { "help",        0, 0, 'h' },
         { "warranty",    0, 0, 'W' },
@@ -696,7 +774,7 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt_long (argc, argv, "vDhrwb:s:cg:CVW",
+    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVW",
       long_options, 0)) != -1) {
         switch (ch) {
         case 'c':
@@ -711,6 +789,9 @@ int main (int argc, char **argv)
         case 'r':
             ++read_mode;
             continue;
+        case 'i':
+            ++info_mode;
+            continue;
         case 'w':
             ++memory_write_mode;
             continue;
@@ -720,8 +801,11 @@ int main (int argc, char **argv)
         case 'b':
             board = optarg;
             continue;
+        case 'n':
+            board_serial = optarg;
+            continue;
         case 's':
-            checksum_addr = strtoul (optarg, 0, 0);
+            ++store_info;
             continue;
         case 'h':
             break;
@@ -752,22 +836,24 @@ usage:
         printf ("\nRead memory:\n");
         printf ("       mcprog -r file.bin address length\n");
         printf ("\nArgs:\n");
-        printf ("       file.sre        Code file SREC format\n");
-        printf ("       file.bin        Code file in binary format\n");
-        printf ("       address         Address of flash memory, default 0x%08X\n",
+        printf ("       file.sre            Code file SREC format\n");
+        printf ("       file.bin            Code file in binary format\n");
+        printf ("       address             Address of flash memory, default 0x%08X\n",
             DEFAULT_ADDR);
-        printf ("       -c              Check clean\n");
-        printf ("       -v              Verify only\n");
-        printf ("       -w              Memory write mode\n");
-        printf ("       -r              Read mode\n");
-        printf ("       -b name         Specify board name\n");
-        printf ("       -s addr         Compute and store checksum\n");
-        printf ("       -g addr         Start execution from address\n");
-        printf ("       -D              Debug mode\n");
-        printf ("       -h, --help      Print this help message\n");
-        printf ("       -V, --version   print version\n");
-        printf ("       -C, --copying   print copying information\n");
-        printf ("       -W, --warranty  print warranty information\n");
+        printf ("       -c                  Check clean\n");
+        printf ("       -v                  Verify only\n");
+        printf ("       -w                  Memory write mode\n");
+        printf ("       -r                  Read mode\n");
+	printf ("       -i                  Read software information\n");
+        printf ("       -b type             Specify board type\n");
+        printf ("       -s                  Compute and store software information\n");
+	printf ("       -n serial           Specify board serial number\n");
+        printf ("       -g addr             Start execution from address\n");
+        printf ("       -D                  Debug mode\n");
+        printf ("       -h, --help          Print this help message\n");
+        printf ("       -V, --version       Print version\n");
+        printf ("       -C, --copying       Print copying information\n");
+        printf ("       -W, --warranty      Print warranty information\n");
         printf ("\n");
         return 0;
     }
@@ -777,7 +863,12 @@ usage:
 
     switch (argc) {
     case 0:
-        do_probe ();
+        if (info_mode) {
+            memory_base = DEFAULT_ADDR;
+            do_info();
+	} else {
+            do_probe ();
+        }
         break;
     case 1:
         memory_len = read_srec (argv[0], memory_data);
@@ -785,10 +876,12 @@ usage:
             memory_base = DEFAULT_ADDR;
             memory_len = read_bin (argv[0], memory_data);
         }
-        if (memory_write_mode)
+        if (info_mode)
+            do_info();
+        else if (memory_write_mode)
             do_write ();
         else
-            do_program ();
+            do_program (argv[0], store_info);
         break;
     case 2:
         memory_base = strtoul (argv[1], 0, 0);
@@ -796,7 +889,7 @@ usage:
         if (memory_write_mode)
             do_write ();
         else
-            do_program ();
+            do_program (argv[0], store_info);
         break;
     case 3:
         if (! read_mode)

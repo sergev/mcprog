@@ -10,7 +10,7 @@ COMMON_OBJS	+= adapter-lpt.o
 COMMON_OBJS	+= adapter-bitbang.o
 COMMON_OBJS	+= adapter-mpsse.o
 
-PROG_OBJS	= mcprog.o conf.o $(COMMON_OBJS)
+PROG_OBJS	= mcprog.o conf.o swinfo.o $(COMMON_OBJS)
 
 REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
 
