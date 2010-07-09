@@ -28,6 +28,9 @@ adapter-bitbang: adapter-bitbang.c
 adapter-mpsse: adapter-mpsse.c
 		$(CC) $(LDFLAGS) $(CFLAGS) -DSTANDALONE -o $@ adapter-mpsse.c $(LIBS)
 
+mcprog.po:      *.c
+		xgettext --from-code=utf-8 --keyword=_ mcprog.c target.c adapter-lpt.c -o $@
+
 clean:
 		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse
 

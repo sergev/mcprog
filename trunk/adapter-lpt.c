@@ -23,6 +23,7 @@
 
 #include "adapter.h"
 #include "oncd.h"
+#include "localize.h"
 
 typedef struct {
     /* Общая часть. */
@@ -357,7 +358,7 @@ static void set_dr (char *data, int len)
     t0 = time (0);
     while (wait_status (MCIF_STATUS_PAUSEDR)) {
         if (time (0) > t0 + 1) {
-            fprintf (stderr, "Timeout, writing JTAG DR\n");
+            fprintf (stderr, _("Timeout, writing JTAG DR\n"));
             exit (1);
         }
     }
@@ -374,7 +375,7 @@ static void set_dr (char *data, int len)
         t0 = time (0);
         while (wait_status (MCIF_STATUS_PAUSEDR)) {
             if (time (0) > t0 + 1) {
-                fprintf (stderr, "Timeout, writing JTAG DR\n");
+                fprintf (stderr, _("Timeout, writing JTAG DR\n"));
                 exit (1);
             }
         }
@@ -394,7 +395,7 @@ static void set_dr (char *data, int len)
     t0 = time (0);
     while (wait_status (MCIF_STATUS_RTI)) {
         if (time (0) > t0 + 1) {
-            fprintf(stderr, "Timeout, writing JTAG DR\n");
+            fprintf(stderr, _("Timeout, writing JTAG DR\n"));
             exit(1);
         }
     }

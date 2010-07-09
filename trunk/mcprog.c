@@ -25,9 +25,12 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <libgen.h>
+#include <locale.h>
+
 #include "target.h"
 #include "conf.h"
 #include "swinfo.h"
+#include "localize.h"
 
 #define PROGNAME        "Programmer for Elvees MIPS32 processors"
 #define COPYRIGHT       "Copyright (C) 2010 Serge Vakulenko"
@@ -90,7 +93,7 @@ int read_bin (char *filename, unsigned char *output)
     output_len = fread (output, 1, sizeof (memory_data), fd);
     fclose (fd);
     if (output_len < 0) {
-        fprintf (stderr, "%s: read error\n", filename);
+        fprintf (stderr, _("%s: read error\n"), filename);
         exit (1);
     }
     return output_len;
@@ -119,7 +122,7 @@ int read_srec (char *filename, unsigned char *output)
         if (buf[0] != 'S') {
             if (output_len == 0)
                 break;
-            fprintf (stderr, "%s: bad file format\n", filename);
+            fprintf (stderr, _("%s: bad file format\n"), filename);
             exit (1);
         }
         if (buf[1] == '7' || buf[1] == '8' || buf[1] == '9')
@@ -127,7 +130,7 @@ int read_srec (char *filename, unsigned char *output)
 
         /* Starting an S-record.  */
         if (! isxdigit (buf[2]) || ! isxdigit (buf[3])) {
-            fprintf (stderr, "%s: bad record: %s\n", filename, buf);
+            fprintf (stderr, _("%s: bad record: %s\n"), filename, buf);
             exit (1);
         }
         bytes = HEX (buf + 2);
@@ -160,13 +163,13 @@ int read_srec (char *filename, unsigned char *output)
                 memory_base = address;
             }
             if (address < memory_base) {
-                fprintf (stderr, "%s: incorrect address %08X, must be %08X or greater\n",
+                fprintf (stderr, _("%s: incorrect address %08X, must be %08X or greater\n"),
                     filename, address, memory_base);
                 exit (1);
             }
             address -= memory_base;
             if (address+bytes > sizeof (memory_data)) {
-                fprintf (stderr, "%s: address too large: %08X + %08X\n",
+                fprintf (stderr, _("%s: address too large: %08X + %08X\n"),
                     filename, address + memory_base, bytes);
                 exit (1);
             }
@@ -209,19 +212,19 @@ void print_board_info (sw_info *pinfo)
     struct tm *creat_date;
     if (pinfo) {
 	if (isprint (pinfo->board_sn[0]))
-            printf ("Board serial number:      %s\n", pinfo->board_sn);
+            printf (_("Board serial number:      %s\n"), pinfo->board_sn);
 	if (isprint (pinfo->sw_version[0]))
-            printf ("Software version:         %s\n", pinfo->sw_version);
+            printf (_("Software version:         %s\n"), pinfo->sw_version);
         if (isprint (pinfo->filename[0])) {
-            printf ("Software file name:       %s\n", pinfo->filename);
+            printf (_("Software file name:       %s\n"), pinfo->filename);
 			creat_date = localtime (&pinfo->time);
-            printf ("Date of creation:         %02d.%02d.%04d\n",
+            printf (_("Date of creation:         %02d.%02d.%04d\n"),
                      creat_date->tm_mday, creat_date->tm_mon + 1, creat_date->tm_year + 1900);
-            printf ("Memory size:              %d\n", pinfo->len);
-            printf ("CRC:                      %08X\n\n", pinfo->crc);
+            printf (_("Memory size:              %d\n"), pinfo->len);
+            printf (_("CRC:                      %08X\n\n"), pinfo->crc);
         }
     } else {
-        printf ("No information\n\n");
+        printf (_("No information\n\n"));
     }
 }
 
@@ -267,7 +270,7 @@ void verify_block (target_t *mc, unsigned addr, int len)
 //          continue;
         word = block [i/4];
         if (debug_level > 1)
-            printf ("read word %08X at address %08X\n",
+            printf (_("read word %08X at address %08X\n"),
                 word, addr + i + memory_base);
         while (word != expected) {
             /* Возможно, не все нули прописались в flash-память.
@@ -276,7 +279,7 @@ void verify_block (target_t *mc, unsigned addr, int len)
 //addr + i + memory_base, expected, word); fflush (stdout);
             if (verify_only || ! target_flash_rewrite (mc,
                 memory_base + addr + i, expected)) {
-                printf ("\nerror at address %08X: file=%08X, mem=%08X\n",
+                printf (_("\nerror at address %08X: file=%08X, mem=%08X\n"),
                     addr + i + memory_base, expected, word);
                 exit (1);
 //              break;
@@ -293,10 +296,10 @@ void probe_flash (target_t *mc, unsigned base)
     unsigned mfcode, devcode, bytes, width;
     char mfname[40], devname[40];
 
-    printf ("Flash at %08X: ", base);
+    printf (_("Flash at %08X: "), base);
     if (! target_flash_detect (mc, base, &mfcode, &devcode,
         mfname, devname, &bytes, &width)) {
-        printf ("Incorrect id %08X\n", devcode);
+        printf (_("Incorrect id %08X\n"), devcode);
         return;
     }
     printf ("%s %s ", mfname, devname);
@@ -305,16 +308,16 @@ void probe_flash (target_t *mc, unsigned base)
     else
         printf ("(id %08x/%08x)", mfcode, devcode);
     if (bytes % (1024*1024) == 0)
-        printf (", %d Mbytes, %d bit wide\n", bytes / 1024 / 1024, width);
+        printf (_(", %d Mbytes, %d bit wide\n"), bytes / 1024 / 1024, width);
     else
-        printf (", %d kbytes, %d bit wide\n", bytes / 1024, width);
+        printf (_(", %d kbytes, %d bit wide\n"), bytes / 1024, width);
 }
 
 void quit (void)
 {
     if (target != 0) {
         if (start_addr != DEFAULT_ADDR)
-            printf ("Start: %08X\n", start_addr);
+            printf (_("Start: %08X\n"), start_addr);
         target_run (target, start_addr);
         target_close (target);
         free (target);
@@ -338,16 +341,16 @@ void configure_parameter (char *section, char *param, char *value)
         if (strcasecmp (param, "default") == 0) {
             if (! board)
                 board = strdup (value);
-            printf ("Board: %s\n", board);
+            printf (_("Board: %s\n"), board);
         } else {
-            fprintf (stderr, "%s: unknown parameter `%s'\n",
+            fprintf (stderr, _("%s: unknown parameter `%s'\n"),
                 confname, param);
             exit (-1);
         }
         return;
     }
     if (! board) {
-        fprintf (stderr, "%s: parameter 'default' missing\n", confname);
+        fprintf (stderr, _("%s: parameter 'default' missing\n"), confname);
         exit (-1);
     }
     if (strcasecmp (section, board) != 0)
@@ -385,14 +388,14 @@ void configure_parameter (char *section, char *param, char *value)
 //printf("CLK_EN=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4004));
     } else if (strncasecmp (param, "flash ", 6) == 0) {
         if (sscanf (value, "%i-%i", &first, &last) != 2) {
-            fprintf (stderr, "%s: incorrect value for parameter `%s'\n",
+            fprintf (stderr, _("%s: incorrect value for parameter `%s'\n"),
                 confname, param);
             exit (-1);
         }
         printf ("  %s = %08X-%08X\n", param, first, last);
         target_flash_configure (target, first, last);
     } else {
-        fprintf (stderr, "%s: unknown parameter `%s'\n",
+        fprintf (stderr, _("%s: unknown parameter `%s'\n"),
             confname, param);
         exit (-1);
     }
@@ -411,7 +414,7 @@ void configure ()
         if (p) {
             confname = malloc (p - progname + 16);
             if (! confname) {
-                fprintf (stderr, "%s: out of memory\n", progname);
+                fprintf (stderr, _("%s: out of memory\n"), progname);
                 exit (-1);
             }
             strncpy (confname, progname, p - progname);
@@ -433,11 +436,11 @@ void do_probe ()
     atexit (quit);
     target = target_open (1);
     if (! target) {
-        fprintf (stderr, "Error detecting device -- check cable!\n");
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
     target_stop (target);
-    printf ("Processor: %s (id %08X)\n", target_cpu_name (target),
+    printf (_("Processor: %s (id %08X)\n"), target_cpu_name (target),
         target_idcode (target));
 
     configure ();
@@ -473,7 +476,7 @@ static int check_clean (target_t *t, unsigned addr)
                 return 0;
         }
     }
-    printf ("Clean flash: %08X\n", addr);
+    printf (_("Clean flash: %08X\n"), addr);
     return 1;
 };
 
@@ -488,7 +491,7 @@ void do_program (char *filename, int store_info)
 	sw_info zero_sw_info;
     struct stat file_stat;
 
-    printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+    printf (_("Memory: %08X-%08X, total %d bytes\n"), memory_base,
         memory_base + memory_len, memory_len);
 
     if (store_info) {
@@ -496,14 +499,14 @@ void do_program (char *filename, int store_info)
 	len = (memory_len < AREA_SIZE) ? (memory_len) : (AREA_SIZE);
         pinfo = find_info ((char *)memory_data, len);
         if (!pinfo) {
-                printf ("No software information label found. Did you labeled it with verstamp utility?\n");
+                printf (_("No software information label found. Did you labeled it with verstamp utility?\n"));
                 exit(1);
         }
         memset ( &pinfo->len, 0, sizeof(sw_info) - sizeof(pinfo->label));
         pinfo->len = memory_len;
         if (board_serial) {
 	    if (strlen (board_serial) > sizeof(pinfo->board_sn))
-		printf ("Warning: board number is too large. Must be %d bytes at most. Will be cut\n",
+		printf (_("Warning: board number is too large. Must be %d bytes at most. Will be cut\n"),
 			sizeof(pinfo->board_sn));
 	    strcpy (pinfo->board_sn, board_serial);
 	}
@@ -518,8 +521,7 @@ void do_program (char *filename, int store_info)
 	pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) pinfo + sizeof(sw_info),
 	     memory_len - ((char *)pinfo + sizeof(sw_info) - (char *)memory_data));
 
-	printf ("\nLoaded software information:");
-	printf ("\n----------------------------\n");
+	printf (_("\nLoaded software information:\n----------------------------\n"));
         print_board_info (pinfo);
     }
 
@@ -527,23 +529,23 @@ void do_program (char *filename, int store_info)
     atexit (quit);
     target = target_open (1);
     if (! target) {
-        fprintf (stderr, "Error detecting device -- check cable!\n");
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
     target_stop (target);
-    /*printf ("Processor: %s\n", target_cpu_name (target));*/
+    printf (_("Processor: %s\n"), target_cpu_name (target));
 
     configure ();
     if (! target_flash_detect (target, memory_base,
         &mfcode, &devcode, mfname, devname, &bytes, &width)) {
-        printf ("No flash memory detected.\n");
+        printf (_("No flash memory detected.\n"));
         return;
     }
-    printf ("Flash: %s %s", mfname, devname);
+    printf (_("Flash: %s %s"), mfname, devname);
     if (bytes % (1024*1024) == 0)
-        printf (", size %d Mbytes, %d bit wide\n", bytes / 1024 / 1024, width);
+        printf (_(", size %d Mbytes, %d bit wide\n"), bytes / 1024 / 1024, width);
     else
-        printf (", size %d kbytes, %d bit wide\n", bytes / 1024, width);
+        printf (_(", size %d kbytes, %d bit wide\n"), bytes / 1024, width);
 
     if (! verify_only) {
         /* Erase flash. */
@@ -555,7 +557,7 @@ void do_program (char *filename, int store_info)
         if (len < 64)
             break;
     }
-    printf (verify_only ? "Verify: " : "Program: " );
+    printf (verify_only ? _("Verify: ") : _("Program: "));
     print_symbols ('.', len);
     print_symbols ('\b', len);
     fflush (stdout);
@@ -571,8 +573,8 @@ void do_program (char *filename, int store_info)
         progress ();
         verify_block (target, addr, len);
     }
-    printf ("# done\n");
-    printf ("Rate: %ld bytes per second\n",
+    printf (_("# done\n"));
+    printf (_("Rate: %ld bytes per second\n"),
         memory_len * 1000L / mseconds_elapsed (t0));
 }
 
@@ -582,18 +584,18 @@ void do_write ()
     int len;
     void *t0;
 
-    printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+    printf (_("Memory: %08X-%08X, total %d bytes\n"), memory_base,
         memory_base + memory_len, memory_len);
 
     /* Open and detect the device. */
     atexit (quit);
     target = target_open (1);
     if (! target) {
-        fprintf (stderr, "Error detecting device -- check cable!\n");
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
     target_stop (target);
-    /*printf ("Processor: %s\n", target_cpu_name (target));*/
+    printf (_("Processor: %s\n"), target_cpu_name (target));
 
     configure ();
     for (progress_step=1; ; progress_step<<=1) {
@@ -601,7 +603,7 @@ void do_write ()
         if (len < 64)
             break;
     }
-    printf (verify_only ? "Verify: " : "Write: " );
+    printf (verify_only ? _("Verify: ") : _("Write: "));
     print_symbols ('.', len);
     print_symbols ('\b', len);
     fflush (stdout);
@@ -617,8 +619,8 @@ void do_write ()
         progress ();
         verify_block (target, addr, len);
     }
-    printf ("# done\n");
-    printf ("Rate: %ld bytes per second\n",
+    printf (_("# done\n"));
+    printf (_("Rate: %ld bytes per second\n"),
         memory_len * 1000L / mseconds_elapsed (t0));
 }
 
@@ -633,14 +635,14 @@ void do_read (char *filename)
         perror (filename);
         exit (1);
     }
-    printf ("Memory: %08X-%08X, total %d bytes\n", memory_base,
+    printf (_("Memory: %08X-%08X, total %d bytes\n"), memory_base,
         memory_base + memory_len, memory_len);
 
     /* Open and detect the device. */
     atexit (quit);
     target = target_open (1);
     if (! target) {
-        fprintf (stderr, "Error detecting device -- check cable!\n");
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
     target_stop (target);
@@ -670,8 +672,8 @@ void do_read (char *filename)
             exit (1);
         }
     }
-    printf ("# done\n");
-    printf ("Rate: %ld bytes per second\n",
+    printf (_("# done\n"));
+    printf (_("Rate: %ld bytes per second\n"),
         memory_len * 1000L / mseconds_elapsed (t0));
     fclose (fd);
 }
@@ -683,7 +685,7 @@ void do_info()
 
     target = target_open (1);
     if (! target) {
-        fprintf (stderr, "Error detecting device -- check cable!\n");
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
 
@@ -698,8 +700,8 @@ void do_info()
 
         target_read_block (target, flash_base, (AREA_SIZE + 3) / 4, (unsigned *)memory_data);
 
-        printf ("\nFlash #%d, address %08X\n", i, flash_base);
-	printf ("----------------------------------\n");
+        printf (_("\nFlash #%d, address %08X\n----------------------------------\n"),
+            i, flash_base);
         pinfo = find_info ((char *)memory_data, AREA_SIZE);
         print_board_info (pinfo);
     }
@@ -763,6 +765,15 @@ int main (int argc, char **argv)
         { "version",     0, 0, 'V' },
         { NULL,          0, 0, 0 },
     };
+
+    /* Set locale and message catalogs. */
+    setlocale (LC_ALL, "");
+#if defined (__CYGWIN32__) || defined (MINGW32)
+    bindtextdomain ("mcprog", ".");
+#else
+    bindtextdomain ("mcprog", "/usr/local/share/locale");
+#endif
+    textdomain ("mcprog");
 
     setvbuf (stdout, (char *)NULL, _IOLBF, 0);
     setvbuf (stderr, (char *)NULL, _IOLBF, 0);

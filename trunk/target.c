@@ -25,6 +25,7 @@
 #include "adapter.h"
 #include "oncd.h"
 #include "mips.h"
+#include "localize.h"
 
 struct _target_t {
     adapter_t   *adapter;
@@ -544,7 +545,7 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
         phys_addr -= 0x80000000;
 
     if (debug_level)
-        fprintf (stderr, "write %08x to %08x\n", data, phys_addr);
+        fprintf (stderr, _("write %08x to %08x\n"), data, phys_addr);
 
     t->adapter->oncd_write (t->adapter, phys_addr, OnCD_OMAR, 32);
     t->adapter->oncd_write (t->adapter, data, OnCD_OMDR, 32);
@@ -560,7 +561,7 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
             mdelay (1);
         }
         if (count == 0) {
-            fprintf (stderr, "Timeout writing memory, aborted. OSCR=%#x\n",
+            fprintf (stderr, _("Timeout writing memory, aborted. OSCR=%#x\n"),
                 t->adapter->oscr);
             exit (1);
         }
@@ -570,7 +571,7 @@ void target_write_next (target_t *t, unsigned phys_addr, unsigned data)
 void target_write_word (target_t *t, unsigned phys_addr, unsigned data)
 {
     if (debug_level)
-        fprintf (stderr, "write word %08x to %08x\n", data, phys_addr);
+        fprintf (stderr, _("write word %08x to %08x\n"), data, phys_addr);
 
     /* Allow memory access */
     unsigned oscr_new = (t->adapter->oscr & ~OSCR_RO) | OSCR_SlctMEM;
@@ -618,7 +619,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
             mdelay (1);
         }
         if (count == 0) {
-            fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n",
+            fprintf (stderr, _("Timeout reading memory, aborted. OSCR=%#x\n"),
                 t->adapter->oscr);
             exit (1);
         }
@@ -626,7 +627,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
     data = t->adapter->oncd_read (t->adapter, OnCD_OMDR, 32);
 
     if (debug_level)
-        fprintf (stderr, "read %08x from     %08x\n", data, phys_addr);
+        fprintf (stderr, _("read %08x from     %08x\n"), data, phys_addr);
     return data;
 }
 
@@ -698,7 +699,7 @@ target_t *target_open (int need_reset)
 
     t = calloc (1, sizeof (target_t));
     if (! t) {
-        fprintf (stderr, "Out of memory\n");
+        fprintf (stderr, _("Out of memory\n"));
         exit (-1);
     }
     t->cpu_name = "Unknown";
@@ -716,7 +717,7 @@ target_t *target_open (int need_reset)
         t->adapter = adapter_open_lpt ();
 #endif
     if (! t->adapter) {
-        fprintf (stderr, "No JTAG adapter found.\n");
+        fprintf (stderr, _("No JTAG adapter found.\n"));
         exit (-1);
     }
 
@@ -729,9 +730,9 @@ target_t *target_open (int need_reset)
     default:
         /* Device not detected. */
         if (t->idcode == 0xffffffff || t->idcode == 0)
-            fprintf (stderr, "No response from device -- check power is on!\n");
+            fprintf (stderr, _("No response from device -- check power is on!\n"));
         else
-            fprintf (stderr, "No response from device -- unknown idcode 0x%08X!\n",
+            fprintf (stderr, _("No response from device -- unknown idcode 0x%08X!\n"),
                 t->idcode);
         t->adapter->close (t->adapter);
         exit (1);
@@ -775,7 +776,7 @@ void target_flash_configure (target_t *t, unsigned first, unsigned last)
             return;
         }
     }
-    fprintf (stderr, "target_flash_configure: too many flash regions.\n");
+    fprintf (stderr, _("target_flash_configure: too many flash regions.\n"));
     exit (1);
 }
 
@@ -837,7 +838,7 @@ static unsigned compute_base (target_t *t, unsigned addr)
             addr <= t->flash_last [i])
             return t->flash_base [i];
     }
-    fprintf (stderr, "target: no flash region for address 0x%08X\n", addr);
+    fprintf (stderr, _("target: no flash region for address 0x%08X\n"), addr);
     exit (1);
     return 0;
 }
@@ -1006,7 +1007,7 @@ int target_flash_detect (target_t *t, unsigned addr,
 #endif
         }
         if (debug_level > 1)
-            fprintf (stderr, "flash id %08X\n", *dev);
+            fprintf (stderr, _("flash id %08X\n"), *dev);
 
         switch (*dev) {
         case ID_29LV800_B:
@@ -1045,7 +1046,8 @@ int target_flash_detect (target_t *t, unsigned addr,
             goto success;
         }
     }
-    /* fprintf (stderr, "Unknown flash id = %08X\n", *dev); */
+    if (debug_level > 1)
+        fprintf (stderr, _("Unknown flash id = %08X\n"), *dev);
     return 0;
 success:
     /* Read MFR code. */
@@ -1091,7 +1093,7 @@ int target_erase (target_t *t, unsigned addr)
 
     /* Chip erase. */
     base = compute_base (t, addr);
-    printf ("Erase: %08X", base);
+    printf (_("Erase: %08X"), base);
     if (t->flash_width == 8) {
         /* 8-разрядная шина. */
         target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
@@ -1135,7 +1137,7 @@ int target_erase (target_t *t, unsigned addr)
         printf (".");
     }
     mdelay (250);
-    printf (" done\n");
+    printf (_(" done\n"));
     return 1;
 }
 
@@ -1156,7 +1158,7 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     /* Повтор записи возможен, только если не прописались нули. */
     bad = target_read_word (t, addr);
     if ((bad & word) != word) {
-        fprintf (stderr, "target: cannot rewrite word at %x: good %08x bad %08x\n",
+        fprintf (stderr, _("target: cannot rewrite word at %x: good %08x bad %08x\n"),
             addr, word, bad);
         exit (1);
     }
@@ -1185,7 +1187,7 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     case 32:
         if (t->flash_delay)
             return 0;
-fprintf (stderr, "\nrewrite word %02x at %08x ", word, addr); fflush (stderr);
+fprintf (stderr, _("\nrewrite word %02x at %08x "), word, addr); fflush (stderr);
         target_write_nwords (t, 4,
             base + t->flash_addr_odd, t->flash_cmd_aa,
             base + t->flash_addr_even, t->flash_cmd_55,
