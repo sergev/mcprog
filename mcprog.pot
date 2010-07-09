@@ -1,0 +1,334 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2010-07-09 17:37+0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: mcprog.c:96
+#, c-format
+msgid "%s: read error\n"
+msgstr ""
+
+#: mcprog.c:125
+#, c-format
+msgid "%s: bad file format\n"
+msgstr ""
+
+#: mcprog.c:133
+#, c-format
+msgid "%s: bad record: %s\n"
+msgstr ""
+
+#: mcprog.c:166
+#, c-format
+msgid "%s: incorrect address %08X, must be %08X or greater\n"
+msgstr ""
+
+#: mcprog.c:172
+#, c-format
+msgid "%s: address too large: %08X + %08X\n"
+msgstr ""
+
+#: mcprog.c:215
+#, c-format
+msgid "Board serial number:      %s\n"
+msgstr ""
+
+#: mcprog.c:217
+#, c-format
+msgid "Software version:         %s\n"
+msgstr ""
+
+#: mcprog.c:219
+#, c-format
+msgid "Software file name:       %s\n"
+msgstr ""
+
+#: mcprog.c:221
+#, c-format
+msgid "Date of creation:         %02d.%02d.%04d\n"
+msgstr ""
+
+#: mcprog.c:223
+#, c-format
+msgid "Memory size:              %d\n"
+msgstr ""
+
+#: mcprog.c:224
+#, c-format
+msgid ""
+"CRC:                      %08X\n"
+"\n"
+msgstr ""
+
+#: mcprog.c:227
+#, c-format
+msgid ""
+"No information\n"
+"\n"
+msgstr ""
+
+#: mcprog.c:273
+#, c-format
+msgid "read word %08X at address %08X\n"
+msgstr ""
+
+#: mcprog.c:282
+#, c-format
+msgid ""
+"\n"
+"error at address %08X: file=%08X, mem=%08X\n"
+msgstr ""
+
+#: mcprog.c:299
+#, c-format
+msgid "Flash at %08X: "
+msgstr ""
+
+#: mcprog.c:302
+#, c-format
+msgid "Incorrect id %08X\n"
+msgstr ""
+
+#: mcprog.c:311
+#, c-format
+msgid ", %d Mbytes, %d bit wide\n"
+msgstr ""
+
+#: mcprog.c:313
+#, c-format
+msgid ", %d kbytes, %d bit wide\n"
+msgstr ""
+
+#: mcprog.c:320
+#, c-format
+msgid "Start: %08X\n"
+msgstr ""
+
+#: mcprog.c:344
+#, c-format
+msgid "Board: %s\n"
+msgstr ""
+
+#: mcprog.c:346 mcprog.c:398
+#, c-format
+msgid "%s: unknown parameter `%s'\n"
+msgstr ""
+
+#: mcprog.c:353
+#, c-format
+msgid "%s: parameter 'default' missing\n"
+msgstr ""
+
+#: mcprog.c:391
+#, c-format
+msgid "%s: incorrect value for parameter `%s'\n"
+msgstr ""
+
+#: mcprog.c:417
+#, c-format
+msgid "%s: out of memory\n"
+msgstr ""
+
+#: mcprog.c:439 mcprog.c:532 mcprog.c:594 mcprog.c:645 mcprog.c:688
+#, c-format
+msgid "Error detecting device -- check cable!\n"
+msgstr ""
+
+#: mcprog.c:443
+#, c-format
+msgid "Processor: %s (id %08X)\n"
+msgstr ""
+
+#: mcprog.c:479
+#, c-format
+msgid "Clean flash: %08X\n"
+msgstr ""
+
+#: mcprog.c:494 mcprog.c:587 mcprog.c:638
+#, c-format
+msgid "Memory: %08X-%08X, total %d bytes\n"
+msgstr ""
+
+#: mcprog.c:502
+#, c-format
+msgid ""
+"No software information label found. Did you labeled it with verstamp "
+"utility?\n"
+msgstr ""
+
+#: mcprog.c:509
+#, c-format
+msgid ""
+"Warning: board number is too large. Must be %d bytes at most. Will be cut\n"
+msgstr ""
+
+#: mcprog.c:524
+#, c-format
+msgid ""
+"\n"
+"Loaded software information:\n"
+"----------------------------\n"
+msgstr ""
+
+#: mcprog.c:536 mcprog.c:598
+#, c-format
+msgid "Processor: %s\n"
+msgstr ""
+
+#: mcprog.c:541
+#, c-format
+msgid "No flash memory detected.\n"
+msgstr ""
+
+#: mcprog.c:544
+#, c-format
+msgid "Flash: %s %s"
+msgstr ""
+
+#: mcprog.c:546
+#, c-format
+msgid ", size %d Mbytes, %d bit wide\n"
+msgstr ""
+
+#: mcprog.c:548
+#, c-format
+msgid ", size %d kbytes, %d bit wide\n"
+msgstr ""
+
+#: mcprog.c:560 mcprog.c:606
+#, c-format
+msgid "Verify: "
+msgstr ""
+
+#: mcprog.c:560
+#, c-format
+msgid "Program: "
+msgstr ""
+
+#: mcprog.c:576 mcprog.c:622 mcprog.c:675
+#, c-format
+msgid "# done\n"
+msgstr ""
+
+#: mcprog.c:577 mcprog.c:623 mcprog.c:676
+#, c-format
+msgid "Rate: %ld bytes per second\n"
+msgstr ""
+
+#: mcprog.c:606
+#, c-format
+msgid "Write: "
+msgstr ""
+
+#: mcprog.c:703
+#, c-format
+msgid ""
+"\n"
+"Flash #%d, address %08X\n"
+"----------------------------------\n"
+msgstr ""
+
+#: target.c:548
+#, c-format
+msgid "write %08x to %08x\n"
+msgstr ""
+
+#: target.c:564
+#, c-format
+msgid "Timeout writing memory, aborted. OSCR=%#x\n"
+msgstr ""
+
+#: target.c:574
+#, c-format
+msgid "write word %08x to %08x\n"
+msgstr ""
+
+#: target.c:622
+#, c-format
+msgid "Timeout reading memory, aborted. OSCR=%#x\n"
+msgstr ""
+
+#: target.c:630
+#, c-format
+msgid "read %08x from     %08x\n"
+msgstr ""
+
+#: target.c:702
+#, c-format
+msgid "Out of memory\n"
+msgstr ""
+
+#: target.c:720
+#, c-format
+msgid "No JTAG adapter found.\n"
+msgstr ""
+
+#: target.c:733
+#, c-format
+msgid "No response from device -- check power is on!\n"
+msgstr ""
+
+#: target.c:735
+#, c-format
+msgid "No response from device -- unknown idcode 0x%08X!\n"
+msgstr ""
+
+#: target.c:779
+#, c-format
+msgid "target_flash_configure: too many flash regions.\n"
+msgstr ""
+
+#: target.c:841
+#, c-format
+msgid "target: no flash region for address 0x%08X\n"
+msgstr ""
+
+#: target.c:1010
+#, c-format
+msgid "flash id %08X\n"
+msgstr ""
+
+#: target.c:1050
+#, c-format
+msgid "Unknown flash id = %08X\n"
+msgstr ""
+
+#: target.c:1096
+#, c-format
+msgid "Erase: %08X"
+msgstr ""
+
+#: target.c:1140
+#, c-format
+msgid " done\n"
+msgstr ""
+
+#: target.c:1161
+#, c-format
+msgid "target: cannot rewrite word at %x: good %08x bad %08x\n"
+msgstr ""
+
+#: target.c:1190
+#, c-format
+msgid ""
+"\n"
+"rewrite word %02x at %08x "
+msgstr ""
+
+#: adapter-lpt.c:361 adapter-lpt.c:378 adapter-lpt.c:398
+#, c-format
+msgid "Timeout, writing JTAG DR\n"
+msgstr ""
