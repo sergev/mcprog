@@ -32,8 +32,6 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define PROGNAME        "Programmer for Elvees MIPS32 processors"
-#define COPYRIGHT       "Copyright (C) 2010 Serge Vakulenko"
 #define VERSION         "1.8"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
@@ -55,6 +53,7 @@ char *progname;
 char *confname;
 char *board;
 char *board_serial = 0;
+const char *copyright;
 
 void *fix_time ()
 {
@@ -712,8 +711,7 @@ void do_info()
  */
 static void gpl_show_copying (void)
 {
-    printf (COPYRIGHT ".\n");
-    printf ("\n");
+    printf ("%s.\n\n", copyright);
     printf ("This program is free software; you can redistribute it and/or modify\n");
     printf ("it under the terms of the GNU General Public License as published by\n");
     printf ("the Free Software Foundation; either version 2 of the License, or\n");
@@ -731,8 +729,7 @@ static void gpl_show_copying (void)
  */
 static void gpl_show_warranty (void)
 {
-    printf (COPYRIGHT ".\n");
-    printf ("\n");
+    printf ("%s.\n\n", copyright);
     printf ("BECAUSE THE PROGRAM IS LICENSED FREE OF CHARGE, THERE IS NO WARRANTY\n");
     printf ("FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW.  EXCEPT WHEN\n");
     printf ("OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES\n");
@@ -777,8 +774,9 @@ int main (int argc, char **argv)
 
     setvbuf (stdout, (char *)NULL, _IOLBF, 0);
     setvbuf (stderr, (char *)NULL, _IOLBF, 0);
-    printf (PROGNAME ", Version " VERSION "\n");
+    printf (_("Programmer for Elvees MIPS32 processors, Version %s\n"), VERSION);
     progname = argv[0];
+    copyright = _("Copyright (C) 2010 Serge Vakulenko");
     signal (SIGINT, interrupted);
 #ifdef __linux__
     signal (SIGHUP, interrupted);
@@ -831,7 +829,7 @@ int main (int argc, char **argv)
             return 0;
         }
 usage:
-        printf (COPYRIGHT ".\n\n");
+        printf ("%s.\n\n", copyright);
         printf ("MCprog comes with ABSOLUTELY NO WARRANTY; for details\n");
         printf ("use `--warranty' option. This is Open Source software. You are\n");
         printf ("welcome to redistribute it under certain conditions. Use the\n");
@@ -868,7 +866,7 @@ usage:
         printf ("\n");
         return 0;
     }
-    printf (COPYRIGHT ".\n");
+    printf ("%s.\n", copyright);
     argc -= optind;
     argv += optind;
 
