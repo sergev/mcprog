@@ -14,7 +14,7 @@ PROG_OBJS	= mcprog.o conf.o swinfo.o $(COMMON_OBJS)
 
 REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
 
-all:		mcprog mcremote mcprog-ru.mo #adapter-bitbang adapter-mpsse
+all:		mcprog mcremote mcprog-ru.mo ru/LC_MESSAGES/mcprog.mo #adapter-bitbang adapter-mpsse
 
 mcprog:		$(PROG_OBJS)
 		$(CC) $(LDFLAGS) -o $@ $(PROG_OBJS) $(LIBS)
@@ -33,6 +33,10 @@ mcprog.po:      *.c
 
 mcprog-ru.mo:   mcprog-ru.po
 		msgfmt -c -o $@ $<
+
+mcprog-ru-cp866.mo ru/LC_MESSAGES/mcprog.mo: mcprog-ru.po
+		iconv -f utf-8 -t cp866 $< | sed 's/UTF-8/CP866/' | msgfmt -c -o $@ -
+		cp $@ ru/LC_MESSAGES/mcprog.mo
 
 clean:
 		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse mcprog.po
