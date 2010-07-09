@@ -14,7 +14,7 @@ PROG_OBJS	= mcprog.o conf.o swinfo.o $(COMMON_OBJS)
 
 REMOTE_OBJS	= gdbproxy.o rpmisc.o remote-elvees.o $(COMMON_OBJS)
 
-all:		mcprog mcremote #adapter-bitbang adapter-mpsse
+all:		mcprog mcremote mcprog-ru.mo #adapter-bitbang adapter-mpsse
 
 mcprog:		$(PROG_OBJS)
 		$(CC) $(LDFLAGS) -o $@ $(PROG_OBJS) $(LIBS)
@@ -31,10 +31,13 @@ adapter-mpsse: adapter-mpsse.c
 mcprog.po:      *.c
 		xgettext --from-code=utf-8 --keyword=_ mcprog.c target.c adapter-lpt.c -o $@
 
-clean:
-		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse
+mcprog-ru.mo:   mcprog-ru.po
+		msgfmt -c -o $@ $<
 
-install:	mcprog mcremote mcprog.conf
+clean:
+		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse mcprog.po
+
+install:	mcprog mcremote mcprog.conf mcprog-ru.mo
 		install -c -s mcprog /usr/local/bin/mcprog
 		install -c -s mcremote /usr/local/bin/mcremote
 		[ -f //usr/local/etc/mcprog.conf ] || install -c -m644 mcprog.conf /usr/local/etc/mcprog.conf
@@ -42,6 +45,7 @@ install:	mcprog mcremote mcprog.conf
 		    chown root /usr/local/bin/mcprog /usr/local/bin/mcremote; \
 		    chmod 4755 /usr/local/bin/mcprog /usr/local/bin/mcremote; \
 		fi
+		install -c -m 444 mcprog-ru.mo /usr/local/share/locale/ru/LC_MESSAGES/mcprog.mo
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
 adapter-lpt.o: adapter-lpt.c adapter.h oncd.h
