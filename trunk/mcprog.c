@@ -766,7 +766,12 @@ int main (int argc, char **argv)
     /* Set locale and message catalogs. */
     setlocale (LC_ALL, "");
 #if defined (__CYGWIN32__) || defined (MINGW32)
-    bindtextdomain ("mcprog", ".");
+    /* Files with localized messages should be placed in
+     * the current directory or in c:/Program Files/mcprog. */
+    if (access ("./ru/LC_MESSAGES/mcprog.mo", R_OK) == 0)
+        bindtextdomain ("mcprog", ".");
+    else
+        bindtextdomain ("mcprog", "c:/Program Files/mcprog");
 #else
     bindtextdomain ("mcprog", "/usr/local/share/locale");
 #endif
