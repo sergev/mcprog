@@ -36,7 +36,7 @@ mcprog-ru.mo:   mcprog-ru.po
 
 mcprog-ru-cp866.mo ru/LC_MESSAGES/mcprog.mo: mcprog-ru.po
 		iconv -f utf-8 -t cp866 $< | sed 's/UTF-8/CP866/' | msgfmt -c -o $@ -
-		#cp $@ ru/LC_MESSAGES/mcprog.mo
+		cp mcprog-ru-cp866.mo ru/LC_MESSAGES/mcprog.mo
 
 clean:
 		rm -f *~ *.o core mcprog mcremote adapter-bitbang adapter-mpsse mcprog.po

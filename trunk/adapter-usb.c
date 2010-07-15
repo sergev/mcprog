@@ -24,6 +24,7 @@
 
 #include "adapter.h"
 #include "oncd.h"
+#include "localize.h"
 
 typedef struct {
     /* Общая часть. */
@@ -767,7 +768,7 @@ found:
         free (a);
         return 0;
     }
-    fprintf (stderr, "USB adapter version: %02x\n", version >> 8);
+    fprintf (stderr, _("USB adapter version: %02x\n"), version >> 8);
 
     /* Обязательные функции. */
     a->adapter.name = "Elvees USB";
