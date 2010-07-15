@@ -340,3 +340,8 @@ msgstr "\nперезапись слова %08x по адресу  %08x "
 #, c-format
 msgid "Timeout, writing JTAG DR\n"
 msgstr "Таймаут записи в адаптер JTAG\n"
+
+#: adapter-usb.c:770
+#, c-format
+msgid "USB adapter version: %02x\n"
+msgstr "Версия USB-адаптера: %02x\n"

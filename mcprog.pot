@@ -341,3 +341,8 @@ msgstr ""
 #, c-format
 msgid "Timeout, writing JTAG DR\n"
 msgstr ""
+
+#: adapter-usb.c:770
+#, c-format
+msgid "USB adapter version: %02x\n"
+msgstr ""
