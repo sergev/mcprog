@@ -334,7 +334,7 @@ msgstr "вычислитель: не получается перезаписат
 msgid ""
 "\n"
 "rewrite word %02x at %08x "
-msgstr "\nперезапись слова %02x по адресу  %08x "
+msgstr "\nперезапись слова %08x по адресу  %08x "
 
 #: adapter-lpt.c:361 adapter-lpt.c:378 adapter-lpt.c:398
 #, c-format
