@@ -49,6 +49,7 @@ install:	mcprog mcremote mcprog.conf mcprog-ru.mo
 		    chown root /usr/local/bin/mcprog /usr/local/bin/mcremote; \
 		    chmod 4755 /usr/local/bin/mcprog /usr/local/bin/mcremote; \
 		fi
+		install -d /usr/local/share/locale/ru/LC_MESSAGES
 		install -c -m 444 mcprog-ru.mo /usr/local/share/locale/ru/LC_MESSAGES/mcprog.mo
 ###
 adapter-bitbang.o: adapter-bitbang.c adapter.h oncd.h
