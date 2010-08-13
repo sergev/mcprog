@@ -51,7 +51,6 @@ struct _target_t {
     unsigned    flash_delay;
 
     unsigned    pc_fetch, pc_dec, ir_dec, pc_exec;
-//    unsigned    pc_mem, pc_wb;
     unsigned    mem0;
     unsigned    reg [32], valid [32];
     unsigned    reg_lo, valid_lo;
@@ -79,7 +78,7 @@ struct _target_t {
 #define ID_39VF6401_B   0x236d236d
 #define ID_1636PP2Y     0xc8c8c8c8
 #define ID_1638PP1      0x07070707
-#define ID_S29AL032D        0x000000f9
+#define ID_S29AL032D    0x000000f9
 
 /* Команды flash. */
 #define FLASH_CMD16_AA  0x00AA00AA
@@ -100,8 +99,8 @@ struct _target_t {
 #define FLASH_CMD8_F0   0xF0F0F0F0
 
 /* Идентификатор версии процессора. */
-#define MC12_ID         0x20777001
-#define MC12REV1_ID     0x30777001
+#define MC12_ID         0x20777001  /* OnCD от 2005 года */
+#define MC12REV1_ID     0x30777001  /* OnCD_F от 2007 года */
 #define MC12REV2_ID     0x40777001
 
 #define MC_CSCON3               0x182F100C
@@ -148,11 +147,42 @@ static void target_exec (target_t *t, unsigned instr)
 }
 
 /*
+ * Прочитать неадресуемый объект с помощью нового
+ * механизма доступа OnCD через RegF.
+ */
+static unsigned regf_read (target_t *t, unsigned group, unsigned n)
+{
+    unsigned irdec = group;
+    if (group < 2)
+        irdec |= n << 16;
+    else
+        irdec |= n << 3;
+
+    t->adapter->oncd_write (t->adapter, irdec, OnCD_IRdec, 32);
+    unsigned val = t->adapter->oncd_read (t->adapter, OnCD_REGF, 32);
+    return val;
+}
+
+/*
+ * Записать неадресуемый объект с помощью нового
+ * механизма доступа OnCD через RegF.
+ */
+static void regf_write (target_t *t, unsigned group, unsigned n, unsigned val)
+{
+    unsigned irdec = group | (n << 3);
+    t->adapter->oncd_write (t->adapter, irdec, OnCD_IRdec, 32);
+    t->adapter->oncd_write (t->adapter, val, OnCD_REGF, 32);
+}
+
+/*
  * Чтение регистра через запись в 0-е слово внутренней памяти.
- * Регистр GP используется как база.
  */
 static unsigned target_read_reg (target_t *t, int regno)
 {
+    if (t->idcode != MC12_ID) {
+        return regf_read (t, GROUP_RFCPU, regno);
+    }
+    /* Регистр GP используется как база. */
     target_exec (t, MIPS_SW | (GP << 21) | (regno << 16));
     target_exec (t, MIPS_NOP);
     target_exec (t, MIPS_NOP);
@@ -165,6 +195,10 @@ static unsigned target_read_reg (target_t *t, int regno)
  */
 static void target_write_reg (target_t *t, int regno, unsigned val)
 {
+    if (t->idcode != MC12_ID) {
+        regf_write (t, GROUP_RFCPU, regno, val);
+        return;
+    }
     /* addiu rt, immed */
     target_exec (t, MIPS_ADDI | (regno << 16) | (val >> 16));
 
@@ -177,10 +211,13 @@ static void target_write_reg (target_t *t, int regno, unsigned val)
 
 /*
  * Чтение регистра сопроцессора 0.
- * В качестве промежуточного используется регистр FP.
  */
 static unsigned target_read_cp0 (target_t *t, int regno)
 {
+    if (t->idcode != MC12_ID) {
+        return regf_read (t, GROUP_CP0, regno);
+    }
+    /* В качестве промежуточного используется регистр FP. */
     target_exec (t, MIPS_MFC0 | (FP << 16) | (regno << 11));
     target_exec (t, MIPS_NOP);
     target_exec (t, MIPS_NOP);
@@ -189,21 +226,21 @@ static unsigned target_read_cp0 (target_t *t, int regno)
 
 /*
  * Запись регистра сопроцессора 0.
- * В качестве промежуточного используется регистр FP.
  */
 static void target_write_cp0 (target_t *t, int regno, unsigned val)
 {
+    if (t->idcode != MC12_ID) {
+        regf_write (t, GROUP_CP0, regno, val);
+        return;
+    }
+    /* В качестве промежуточного используется регистр FP. */
     target_write_reg (t, FP, val);
-
     target_exec (t, MIPS_MTC0 | (FP << 16) | (regno << 11));
     target_exec (t, MIPS_NOP);
 }
 
 /*
- * Cохранение состояния процессора:
- * - конвейер
- * - 0-е слово внутренней памяти
- * - регистры GP и FP
+ * Cохранение состояния процессора: конвейер.
  */
 static void target_save_state (target_t *t)
 {
@@ -214,14 +251,15 @@ static void target_save_state (target_t *t)
     t->pc_dec = t->adapter->oncd_read (t->adapter, OnCD_PCdec, 32);
     t->ir_dec = t->adapter->oncd_read (t->adapter, OnCD_IRdec, 32);
     t->pc_exec = t->adapter->oncd_read (t->adapter, OnCD_PCexec, 32);
-//    t->pc_mem = t->adapter->oncd_read (t->adapter, OnCD_PCmem, 32);
-//    t->pc_wb = t->adapter->oncd_read (t->adapter, OnCD_PCwb, 32);
-//fprintf (stderr, "PC fetch = %08x\n", t->pc_fetch);
-//fprintf (stderr, "PC dec   = %08x, ir = %08x\n", t->pc_dec, t->ir_dec);
-//fprintf (stderr, "PC exec  = %08x\n", t->pc_exec);
-//fprintf (stderr, "PC mem   = %08x\n", t->pc_mem);
-//fprintf (stderr, "PC wb    = %08x\n", t->pc_wb);
-
+#if 0
+    unsigned pc_mem = t->adapter->oncd_read (t->adapter, OnCD_PCmem, 32);
+    unsigned pc_wb = t->adapter->oncd_read (t->adapter, OnCD_PCwb, 32);
+fprintf (stderr, "PC fetch = %08x\n", t->pc_fetch);
+fprintf (stderr, "PC dec   = %08x, ir = %08x\n", t->pc_dec, t->ir_dec);
+fprintf (stderr, "PC exec  = %08x\n", t->pc_exec);
+fprintf (stderr, "PC mem   = %08x\n", pc_mem);
+fprintf (stderr, "PC wb    = %08x\n", pc_wb);
+#endif
     /* Снимаем запрет останова в Delay Slot. */
     t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
     t->adapter->oscr &= ~OSCR_NDS;
@@ -269,42 +307,43 @@ static void target_save_state (target_t *t)
     t->valid_fcsr = 0;
     t->valid_fir = 0;
 
-    /* Сохраняем 0-е слово внутренней памяти. */
-    t->mem0 = target_read_word (t, CRAM_ADDR);
+    if (t->idcode == MC12_ID) {
+        /* Сохраняем 0-е слово внутренней памяти. */
+        t->mem0 = target_read_word (t, CRAM_ADDR);
 
-    /* Сохраняем регистр GP. */
-    target_exec (t, MIPS_NOP);
-    target_exec (t, MIPS_NOP);
-    target_exec (t, MIPS_JR | (GP << 21));
-    t->reg[GP] = t->adapter->oncd_read (t->adapter, OnCD_PCfetch, 32);
-    t->valid[GP] = 1;
+        /* Сохраняем регистр GP. */
+        target_exec (t, MIPS_NOP);
+        target_exec (t, MIPS_NOP);
+        target_exec (t, MIPS_JR | (GP << 21));
+        t->reg[GP] = t->adapter->oncd_read (t->adapter, OnCD_PCfetch, 32);
+        t->valid[GP] = 1;
 
-    /* Устанавливаем регистр GP равным адресу CRAM. */
-    target_exec (t, MIPS_LUI | (GP << 16) | (CRAM_ADDR >> 16) | 0x8000);
-    target_exec (t, MIPS_NOP);
-    target_exec (t, MIPS_NOP);
+        /* Устанавливаем регистр GP равным адресу CRAM. */
+        target_exec (t, MIPS_LUI | (GP << 16) | (CRAM_ADDR >> 16) | 0x8000);
+        target_exec (t, MIPS_NOP);
+        target_exec (t, MIPS_NOP);
 
-    /* Сохраняем регистр FP. */
-    t->reg[FP] = target_read_reg (t, FP);
-    t->valid[FP] = 1;
+        /* Сохраняем регистр FP. */
+        t->reg[FP] = target_read_reg (t, FP);
+        t->valid[FP] = 1;
+    }
 }
 
 /*
- * Восстановление состояния процессора:
- * - регистры GP и FP
- * - 0-е слово внутренней памяти
- * - конвейер
+ * Восстановление состояния процессора: конвейер.
  */
 static void target_restore_state (target_t *t)
 {
     int i;
 
-    /* Восстанавливаем регистры FP и GP. */
-    target_write_reg (t, FP, t->reg[FP]);
-    target_write_reg (t, GP, t->reg[GP]);
+    if (t->idcode == MC12_ID) {
+        /* Восстанавливаем регистры FP и GP. */
+        target_write_reg (t, FP, t->reg[FP]);
+        target_write_reg (t, GP, t->reg[GP]);
 
-    /* Восстанавливаем 0-е слово внутренней памяти. */
-    target_write_word (t, CRAM_ADDR, t->mem0);
+        /* Восстанавливаем 0-е слово внутренней памяти. */
+        target_write_word (t, CRAM_ADDR, t->mem0);
+    }
 
     /* Очищаем конвейер. */
     for (i=0; i<3; i++) {
@@ -339,10 +378,13 @@ static void target_restore_state (target_t *t)
 
 /*
  * Чтение регистра FPU через запись в 0-е слово внутренней памяти.
- * Регистр GP используется как база.
  */
 static unsigned target_read_fpu (target_t *t, int regno)
 {
+    if (t->idcode != MC12_ID) {
+        return regf_read (t, GROUP_RFFPU, regno);
+    }
+    /* Регистр GP используется как база. */
     target_exec (t, MIPS_SWC1 | (GP << 21) | (regno << 16));
     target_exec (t, MIPS_NOP);
     target_exec (t, MIPS_NOP);
@@ -352,10 +394,14 @@ static unsigned target_read_fpu (target_t *t, int regno)
 
 /*
  * Установка значения регистра FPU.
- * В качестве промежуточного используется регистр FP.
  */
 static void target_write_fpu (target_t *t, int regno, unsigned val)
 {
+    if (t->idcode != MC12_ID) {
+        regf_write (t, GROUP_RFFPU, regno, val);
+        return;
+    }
+    /* В качестве промежуточного используется регистр FP. */
     target_write_reg (t, FP, val);
     target_exec (t, MIPS_MTC1 | (FP << 16) | (regno << 11));
     target_exec (t, MIPS_NOP);
@@ -363,10 +409,13 @@ static void target_write_fpu (target_t *t, int regno, unsigned val)
 
 /*
  * Чтение регистра сопроцессора 0.
- * В качестве промежуточного используется регистр FP.
  */
 static unsigned target_read_fpuctl (target_t *t, int regno)
 {
+    if (t->idcode != MC12_ID) {
+        return regf_read (t, GROUP_CP1, regno);
+    }
+    /* В качестве промежуточного используется регистр FP. */
     target_exec (t, MIPS_CFC1 | (FP << 16) | (regno << 11));
     target_exec (t, MIPS_NOP);
     target_exec (t, MIPS_NOP);
@@ -375,12 +424,15 @@ static unsigned target_read_fpuctl (target_t *t, int regno)
 
 /*
  * Запись регистра сопроцессора 0.
- * В качестве промежуточного используется регистр FP.
  */
 static void target_write_fpuctl (target_t *t, int regno, unsigned val)
 {
+    if (t->idcode != MC12_ID) {
+        regf_write (t, GROUP_CP1, regno, val);
+        return;
+    }
+    /* В качестве промежуточного используется регистр FP. */
     target_write_reg (t, FP, val);
-
     target_exec (t, MIPS_CTC1 | (FP << 16) | (regno << 11));
     target_exec (t, MIPS_NOP);
 }
@@ -417,16 +469,26 @@ unsigned target_read_register (target_t *t, unsigned regno)
 
     case 33:                    /* регистр LO */
         if (! t->valid_lo) {
-            target_exec (t, MIPS_MFLO | (FP << 11));
-            t->reg_lo = target_read_reg (t, FP);
+            if (t->idcode != MC12_ID) {
+                t->reg_lo = regf_read (t, GROUP_HILO, 0);
+            } else {
+                /* В качестве промежуточного используется регистр FP. */
+                target_exec (t, MIPS_MFLO | (FP << 11));
+                t->reg_lo = target_read_reg (t, FP);
+            }
             t->valid_lo = 1;
         }
         return t->reg_lo;
 
     case 34:                    /* регистр HI */
         if (! t->valid_hi) {
-            target_exec (t, MIPS_MFHI | (FP << 11));
-            t->reg_hi = target_read_reg (t, FP);
+            if (t->idcode != MC12_ID) {
+                t->reg_hi = regf_read (t, GROUP_HILO, 1);
+            } else {
+                /* В качестве промежуточного используется регистр FP. */
+                target_exec (t, MIPS_MFHI | (FP << 11));
+                t->reg_hi = target_read_reg (t, FP);
+            }
             t->valid_hi = 1;
         }
         return t->reg_hi;
@@ -494,18 +556,28 @@ void target_write_register (target_t *t, unsigned regno, unsigned val)
         t->valid_cp0 [CP0_STATUS] = 1;
         break;
     case 33:                    /* регистр LO */
-        target_write_reg (t, FP, val);
-        target_exec (t, MIPS_NOP);
-        target_exec (t, MIPS_MTLO | (FP << 21));
-        target_exec (t, MIPS_NOP);
+        if (t->idcode != MC12_ID) {
+            regf_write (t, GROUP_HILO, 0, val);
+        } else {
+            /* В качестве промежуточного используется регистр FP. */
+            target_write_reg (t, FP, val);
+            target_exec (t, MIPS_NOP);
+            target_exec (t, MIPS_MTLO | (FP << 21));
+            target_exec (t, MIPS_NOP);
+        }
         t->reg_lo = val;
         t->valid_lo = 1;
         break;
     case 34:                    /* регистр HI */
-        target_write_reg (t, FP, val);
-        target_exec (t, MIPS_NOP);
-        target_exec (t, MIPS_MTHI | (FP << 21));
-        target_exec (t, MIPS_NOP);
+        if (t->idcode != MC12_ID) {
+            regf_write (t, GROUP_HILO, 1, val);
+        } else {
+            /* В качестве промежуточного используется регистр FP. */
+            target_write_reg (t, FP, val);
+            target_exec (t, MIPS_NOP);
+            target_exec (t, MIPS_MTHI | (FP << 21));
+            target_exec (t, MIPS_NOP);
+        }
         t->reg_hi = val;
         t->valid_hi = 1;
         break;

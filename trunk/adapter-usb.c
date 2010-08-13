@@ -631,14 +631,8 @@ static void usb_stop_cpu (adapter_t *adapter)
     unsigned char rb[8];
     unsigned retry;
 
-    //+++ sinvv: workaround for MCK-02
     static const unsigned char pkt_debug_request[8] = {
         HIR (H_DEBUG),
-        IR_DEBUG_REQUEST,
-    };
-    //--- sinvv: workaround for MCK-02
-    static const unsigned char pkt_debug_request_sysrst[8] = {
-        HIR (H_DEBUG | H_SYSRST),
         IR_DEBUG_REQUEST,
     };
     static const unsigned char pkt_debug_enable[8] = {
@@ -646,29 +640,13 @@ static void usb_stop_cpu (adapter_t *adapter)
         IR_DEBUG_ENABLE,
     };
 
-    /* Запрос Debug request, сброс процессора. */
-    for (retry=0; ; retry++) {
-        if (bulk_write_read (a->usbdev, pkt_debug_request_sysrst, 2, rb, 2) != 2) {
-            fprintf (stderr, "Failed debug request.\n");
-            exit (-1);
-        }
-        //+++ sinvv: workaround for MCK-02
-        if (rb[0] == 0x41) {
-            if (bulk_write_read (a->usbdev, pkt_debug_request, 2, rb, 2) != 2) {
-                fprintf (stderr, "Failed debug request.\n");
-                exit (-1);
-            }
-        }
-        //--- sinvv: workaround for MCK-02
-        if (rb[0] == 0x45)
-            break;
-        if (retry > 100) {
-            fprintf (stderr, "No reply from debug request.\n");
-            exit (-1);
-        }
+    /* Запрос Debug request. */
+    if (bulk_write_read (a->usbdev, pkt_debug_request, 2, rb, 2) != 2) {
+        fprintf (stderr, "Failed debug request.\n");
+        exit (-1);
     }
 
-    /* Разрешить отладочный режим. */
+    /* Ждём переключения в отладочный режим. */
     for (retry=0; ; retry++) {
         if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
             fprintf (stderr, "Failed debug enable.\n");

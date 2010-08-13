@@ -48,6 +48,7 @@
 #define OnCD_PCwb       0x0E    /* Address of instruction at write back stage */
 #define OnCD_MEMACK     0x0E    /* Memory Operation Acknowlege (EnXX) */
 #define OnCD_GO         0x0F    /* Exit From Debug Mode (EnGO) */
+#define OnCD_REGF       0x10    /* Read/write registers */
 
 /* OSCR Register */
 #define OSCR_SlctMEM    0x0001  /* Allow Memory Access */
@@ -89,3 +90,10 @@
 #define OBCR_CC1_GT     0x300   /* Breakpoint 1: when greater than OMLR1 */
 #define OBCR_CC1_MASK   0x300
 #define OBCR_ANY        0x400   /* Trigger condition: 0-both, 1-any */
+
+/* Группы объектов, адресуемых через REGF. */
+#define GROUP_RFCPU     0
+#define GROUP_RFFPU     1
+#define GROUP_CP0       2
+#define GROUP_HILO      3
+#define GROUP_CP1       4
