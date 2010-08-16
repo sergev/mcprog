@@ -338,8 +338,8 @@ msgstr "\nперезапись слова %08x по адресу  %08x "
 
 #: adapter-lpt.c:361 adapter-lpt.c:378 adapter-lpt.c:398
 #, c-format
-msgid "Timeout, writing JTAG DR\n"
-msgstr "Таймаут записи в адаптер JTAG\n"
+msgid "No device on LPT port -- check cable!\n"
+msgstr "Нет устройства на порту LPT - проверьте кабель!\n"
 
 #: adapter-usb.c:770
 #, c-format
