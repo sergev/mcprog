@@ -20,11 +20,13 @@ Flash-памяти AMD/Alliance 29LV800 и SST 39VF800.
 	Flash at 02000000: SST 39VF800 (id 00BF 2781), 4 Mbytes, 64 bit wide
 
 Запись в flash-память:
-        mcprog [-v] file.sre
+        mcprog [-v] file.srec
+        mcprog [-v] file.hex
         mcprog [-v] file.bin [address]
 
 Запись в статическую память:
-        mcprog -w [-v] file.sre
+        mcprog -w [-v] file.srec
+        mcprog -w [-v] file.hex
         mcprog -w [-v] file.bin [address]
 
 Чтение памяти в файл:
@@ -32,6 +34,7 @@ Flash-памяти AMD/Alliance 29LV800 и SST 39VF800.
 
 Параметры:
 	file.srec  - файл с прошивкой в формате SREC
+	file.hex   - файл с прошивкой в формате Intel HEX
 	file.bin   - бинарный файл с прошивкой
 	address	   - адрес flash-памяти, по умолчанию 0xBFC00000
 	-v	   - без записи, только проверка памяти на совпадение
@@ -39,12 +42,13 @@ Flash-памяти AMD/Alliance 29LV800 и SST 39VF800.
         -r         - чтение памяти
         -b name    - выбор типа платы
 
-Входной файл должен иметь простой бинарный формат, или SREC.
-Формат SREC предпочтительнее, так как в нём имеется информация
-об адресах программы. Преобразовать формат ELF или COFF или A.OUT
-в SREC можно командой objcopy, например:
+Входной файл должен иметь простой бинарный формат, или SREC, или Intel HEX.
+Форматы SREC и HEX предпочтительнее, так как в них имеются контрольные суммы
+и информация об адресах программы. Преобразовать формат ELF или COFF или A.OUT
+в SREC или HEX можно командой objcopy, например:
 
 	objcopy -O srec firmware.elf firmware.srec
+	objcopy -O ihex firmware.elf firmware.hex
 
 
 === Файл конфигурации ===
