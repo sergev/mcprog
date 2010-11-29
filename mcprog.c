@@ -487,6 +487,18 @@ void configure_parameter (char *section, char *param, char *value)
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F100C, word);
 
+    } else if (strcasecmp (param, "sdrcon") == 0) {
+        word = strtoul (value, 0, 0);
+        target_write_word (target, 0x182F1014, word);
+
+    } else if (strcasecmp (param, "sdrtmr") == 0) {
+        word = strtoul (value, 0, 0);
+        target_write_word (target, 0x182F1018, word);
+
+    } else if (strcasecmp (param, "sdrcsr") == 0) {
+        word = strtoul (value, 0, 0);
+        target_write_word (target, 0x182F101C, word);
+
     } else if (strcasecmp (param, "cr_pll") == 0) {
         sscanf(value,"%x",&word);
         target_write_word (target, 0x182F4000, word);
