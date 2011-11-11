@@ -684,7 +684,7 @@ unsigned target_read_next (target_t *t, unsigned phys_addr)
 //    if (t->is_running) {
         /* Если процессор запущен, обращение к памяти произойдёт не сразу.
          * Надо ждать появления бита RDYm в регистре OSCR. */
-        for (count = 100; count != 0; count--) {
+        for (count = 1000; count != 0; count--) {
             t->adapter->oscr = t->adapter->oncd_read (t->adapter, OnCD_OSCR, 32);
             if (t->adapter->oscr & OSCR_RDYm)
                 break;
