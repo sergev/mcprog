@@ -65,8 +65,9 @@ typedef struct {
 /*
  * Identifiers of USB adapter.
  */
-#define OLIMEX_VID              0x15ba
-#define OLIMEX_PID              0x0004  /* ARM-USB-Tiny */
+#define OLIMEX_VID             0x15ba
+#define OLIMEX_ARM_USB_TINY     0x0004  /* ARM-USB-Tiny */
+#define OLIMEX_ARM_USB_TINY_H   0x002a	/* ARM-USB-Tiny-H */
 
 /*
  * USB endpoints.
@@ -657,6 +658,7 @@ adapter_t *adapter_open_mpsse (void)
     mpsse_adapter_t *a;
     struct usb_bus *bus;
     struct usb_device *dev;
+    int jtag_adapter_version;
 
     usb_init();
     usb_find_busses();
@@ -664,8 +666,11 @@ adapter_t *adapter_open_mpsse (void)
     for (bus = usb_get_busses(); bus; bus = bus->next) {
         for (dev = bus->devices; dev; dev = dev->next) {
             if (dev->descriptor.idVendor == OLIMEX_VID &&
-                dev->descriptor.idProduct == OLIMEX_PID)
+                (dev->descriptor.idProduct == OLIMEX_ARM_USB_TINY ||
+                 dev->descriptor.idProduct == OLIMEX_ARM_USB_TINY_H)) {
+                jtag_adapter_version = dev->descriptor.idProduct;
                 goto found;
+            }
         }
     }
     /*fprintf (stderr, "USB adapter not found: vid=%04x, pid=%04x\n",
@@ -713,6 +718,20 @@ failed: usb_release_interface (a->usbdev, 0);
     /* Ровно 500 нсек между выдачами. */
     unsigned divisor = 3;
     unsigned char latency_timer = 1;
+    
+    if (jtag_adapter_version == OLIMEX_ARM_USB_TINY) {
+#ifdef _WIN32
+        divisor = 2;
+        latency_timer = 1;
+#else
+        divisor = 1;
+        latency_timer = 4;
+#endif
+    } else if (jtag_adapter_version == OLIMEX_ARM_USB_TINY_H) {
+        divisor = 1;
+        latency_timer = 0;
+    }
+    
 
     if (usb_control_msg (a->usbdev,
         USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,
