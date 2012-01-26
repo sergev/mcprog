@@ -470,44 +470,43 @@ void configure_parameter (char *section, char *param, char *value)
     if (strcasecmp (param, "csr") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F4008, word);
-
+printf("CSR=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4008));
     } else if (strcasecmp (param, "cscon0") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1000, word);
-
+printf("CSCON0=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f1000));
     } else if (strcasecmp (param, "cscon1") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1004, word);
-
+printf("CSCON1=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f1004));
     } else if (strcasecmp (param, "cscon2") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1008, word);
-
+printf("CSCON2=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f1008));
     } else if (strcasecmp (param, "cscon3") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F100C, word);
-
+printf("CSCON3=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f100c));
     } else if (strcasecmp (param, "sdrcon") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1014, word);
-
+printf("SDRCON=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f1014));
     } else if (strcasecmp (param, "sdrtmr") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F1018, word);
-
+printf("SDRTMR=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f1018));
     } else if (strcasecmp (param, "sdrcsr") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F101C, word);
-
+printf("SDRCSR=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f101c));
     } else if (strcasecmp (param, "cr_pll") == 0) {
         sscanf(value,"%x",&word);
         target_write_word (target, 0x182F4000, word);
-//printf("CR_PLL=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4000));
-
+printf("CR_PLL=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4000));
     } else if (strcasecmp (param, "clk_en") == 0) {
         sscanf(value,"%x",&word);
         target_write_word (target, 0x182F4004, word);
-//printf("CLK_EN=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4004));
+printf("CLK_EN=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4004));
     } else if (strncasecmp (param, "flash ", 6) == 0) {
         if (sscanf (value, "%i-%i", &first, &last) != 2) {
             fprintf (stderr, _("%s: incorrect value for parameter `%s'\n"),
