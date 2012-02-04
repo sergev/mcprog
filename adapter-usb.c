@@ -632,11 +632,11 @@ static void usb_stop_cpu (adapter_t *adapter)
     unsigned retry;
 
     static const unsigned char pkt_debug_request[8] = {
-        HIR (H_DEBUG),
+        HIR (H_DEBUG|H_SYSRST),
         IR_DEBUG_REQUEST,
     };
     static const unsigned char pkt_debug_enable[8] = {
-        HIR (H_DEBUG),
+        HIR (H_DEBUG|H_SYSRST),
         IR_DEBUG_ENABLE,
     };
 

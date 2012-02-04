@@ -76,6 +76,7 @@ struct _target_t {
 #define ID_29LV800_T    0x22da22da
 #define ID_39VF800_A    0x27812781
 #define ID_39VF6401_B   0x236d236d
+#define ID_39VF6402_B   0x236c236c
 #define ID_1636PP2Y     0xc8c8c8c8
 #define ID_1638PP1      0x07070707
 #define ID_S29AL032D    0x000000f9
@@ -760,6 +761,8 @@ void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
     target_write_next (t, addr2, data2);
 }
 
+#define RESET_RETRY     100
+#define RESET_DELAY     100
 /*
  * Устанавливаем соединение с адаптером JTAG.
  * Не надо сбрасывать процессор!
@@ -767,6 +770,7 @@ void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
  */
 target_t *target_open (int need_reset)
 {
+    int i;
     target_t *t;
 
     t = calloc (1, sizeof (target_t));
@@ -794,7 +798,13 @@ target_t *target_open (int need_reset)
     }
 
     /* Проверяем идентификатор процессора. */
-    t->idcode = t->adapter->get_idcode (t->adapter);
+    /* Повторы делаются, если на плате "затянутый" SYSRST JTAG */
+    for (i=0;i<RESET_RETRY;i++) {
+        mdelay(RESET_DELAY);
+        t->idcode = t->adapter->get_idcode (t->adapter);
+        if (t->idcode == 0xffffffff || t->idcode == 0) continue;
+        break;
+    };
     if (debug_level)
         fprintf (stderr, "idcode %08X\n", t->idcode);
 
@@ -1096,6 +1106,10 @@ int target_flash_detect (target_t *t, unsigned addr,
             goto success;
         case ID_39VF6401_B:
             strcpy (chipname, "39VF6401B");
+            t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
+            goto success;
+        case ID_39VF6402_B:
+            strcpy (chipname, "39VF6402B");
             t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
             goto success;
         case ID_1636PP2Y:
