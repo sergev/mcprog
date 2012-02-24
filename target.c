@@ -802,7 +802,10 @@ target_t *target_open (int need_reset)
     for (i=0;i<RESET_RETRY;i++) {
         mdelay(RESET_DELAY);
         t->idcode = t->adapter->get_idcode (t->adapter);
-        if (t->idcode == 0xffffffff || t->idcode == 0) continue;
+        if (t->idcode == 0xffffffff || t->idcode == 0) {
+        	t->adapter->reset_cpu(t->adapter);
+        	continue;
+        }
         break;
     };
     if (debug_level)
