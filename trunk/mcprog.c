@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.8"
+#define VERSION         "1.81"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -45,6 +45,7 @@ int memory_len;
 unsigned memory_base;
 unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
+int skip_erase;
 int check_erase;
 int verify_only;
 int debug_level;
@@ -680,8 +681,10 @@ void do_program (char *filename, int store_info)
 
     if (! verify_only) {
         /* Erase flash. */
-        if (! check_erase || ! check_clean (target, memory_base))
-            target_erase (target, memory_base);
+        if (! check_erase || ! check_clean (target, memory_base)) {
+	    if (!skip_erase)
+	      target_erase (target, memory_base);
+	}
     }
     for (progress_step=1; ; progress_step<<=1) {
         len = 1 + memory_len / progress_step / BLOCKSZ;
@@ -920,9 +923,12 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVW",
+    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:",
       long_options, 0)) != -1) {
         switch (ch) {
+        case 'e':
+            skip_erase=strtoul (optarg, 0, 0) ? 0 : 1;
+            continue;
         case 'c':
             ++check_erase;
             continue;
@@ -990,6 +996,7 @@ usage:
         printf ("       address             Address of flash memory, default 0x%08X\n",
             DEFAULT_ADDR);
         printf ("       -c                  Check clean\n");
+        printf ("       -e erase            Need erase (default)\n");	
         printf ("       -v                  Verify only\n");
         printf ("       -w                  Memory write mode\n");
         printf ("       -r                  Read mode\n");
