@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.81"
+#define VERSION         "1.82"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -40,7 +40,7 @@
 #define NIBBLE(x)       (isdigit(x) ? (x)-'0' : tolower(x)+10-'a')
 #define HEX(buffer)     ((NIBBLE((buffer)[0])<<4) + NIBBLE((buffer)[1]))
 
-unsigned char memory_data [0x800000];   /* Code - up to 8 Mbytes */
+unsigned char memory_data [0x1000000];   /* Code - up to 16 Mbytes */
 int memory_len;
 unsigned memory_base;
 unsigned start_addr = DEFAULT_ADDR;
