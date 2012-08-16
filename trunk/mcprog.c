@@ -491,6 +491,7 @@ void configure_parameter (char *section, char *param, char *value)
     } else if (strcasecmp (param, "cscon3") == 0) {
         word = strtoul (value, 0, 0);
         target_write_word (target, 0x182F100C, word);
+        target_set_cscon3 (target, word);
         if (debug_level > 1)
             printf("CSCON3=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f100c));
     } else if (strcasecmp (param, "sdrcon") == 0) {

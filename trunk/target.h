@@ -67,3 +67,4 @@ void target_add_break (target_t *t, unsigned addr, int type);
 void target_remove_break (target_t *t, unsigned addr);
 
 unsigned target_flash_address (target_t *mc, unsigned flash_num);
+void target_set_cscon3 (target_t *t, unsigned value);

@@ -177,7 +177,7 @@ static int elvees_open(int argc,
                          log_func log_fn)
 {
     /* Using USB JTAG adapter. */
-    const char *port ="usb0";
+    /* const char *port ="usb0"; */
 
     /* Option descriptors */
     static struct option long_options[] =
@@ -217,9 +217,11 @@ static int elvees_open(int argc,
         }
     }
 
+    /*
     if (optind == (argc - 1)) {
         port = argv[optind];
     }
+    */
 
     if (! target.device) {
         /* Если первый раз - соединяемся с адаптером.
