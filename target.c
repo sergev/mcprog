@@ -1675,3 +1675,9 @@ unsigned target_flash_address (target_t *mc, unsigned flash_num)
 {
     return mc->flash_base[flash_num];
 }
+
+void target_set_cscon3 (target_t *t, unsigned value)
+{
+    t->cscon3 = value;
+}
+
