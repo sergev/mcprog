@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.82"
+#define VERSION         "1.83"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -55,6 +55,22 @@ char *confname;
 char *board;
 char *board_serial = 0;
 const char *copyright;
+
+/*
+ * Check heximal string
+ */
+int check_hex (char *str)
+{
+	int i, n;
+
+	if ((str[0]!='0')||(str[1]!='x')) return 1;
+	n = strlen(str);
+	if (n > 10) return 1;
+	for (i=2; i<n; i++) {
+		if (! isxdigit(str[i])) return 1;
+	};
+	return 0;
+};
 
 void *fix_time ()
 {
@@ -444,7 +460,7 @@ void interrupted (int signum)
 
 void configure_parameter (char *section, char *param, char *value)
 {
-    unsigned word, first, last;
+    unsigned word, first, last, addr;
 
 //fprintf (stderr, "section=%s, param=%s, value=%s\n", section, param, value);
     if (! section) {
@@ -527,7 +543,13 @@ void configure_parameter (char *section, char *param, char *value)
         }
         printf ("  %s = %08X-%08X\n", param, first, last);
         target_flash_configure (target, first, last);
-    } else {
+	} else if ((check_hex(param) == 0) && (check_hex(value) == 0)) {
+		sscanf(param,"%x",&addr);
+		sscanf(value,"%x",&word);
+		target_write_word (target, addr, word);
+        if (debug_level > 1)
+            printf("%08x=%08x (%s)(%08x)\n",addr,word,value,target_read_word(target,addr));
+	} else {
         fprintf (stderr, _("%s: unknown parameter `%s'\n"),
             confname, param);
         exit (-1);
@@ -917,7 +939,7 @@ int main (int argc, char **argv)
     setvbuf (stderr, (char *)NULL, _IOLBF, 0);
     printf (_("Programmer for Elvees MIPS32 processors, Version %s\n"), VERSION);
     progname = argv[0];
-    copyright = _("Copyright (C) 2010 Serge Vakulenko");
+    copyright = _("Copyright (C) 2010-2013 Serge Vakulenko");
     signal (SIGINT, interrupted);
 #ifdef __linux__
     signal (SIGHUP, interrupted);
@@ -1064,3 +1086,4 @@ usage:
     quit ();
     return 0;
 }
+
