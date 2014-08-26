@@ -80,6 +80,7 @@ struct _target_t {
 #define ID_1636PP2Y     0xc8c8c8c8
 #define ID_1638PP1      0x07070707
 #define ID_S29AL032D    0x000000f9
+#define ID_S29GL256P    0x227E227E
 
 /* Команды flash. */
 #define FLASH_CMD16_AA  0x00AA00AA
@@ -1133,6 +1134,10 @@ int target_flash_detect (target_t *t, unsigned addr,
             strcpy (chipname, "S29AL032D");
             t->flash_bytes = 4*1024*1024;
             goto success;
+        case ID_S29GL256P:
+            strcpy (chipname, "S29GL256P");
+            t->flash_bytes = 64*1024*1024;
+            goto success;
         }
     }
     if (debug_level > 1)
@@ -1145,7 +1150,10 @@ success:
         strcpy (mfname, "Alliance");
         break;
     case ID_AMD:
-        strcpy (mfname, "AMD");
+        if (*dev == ID_S29GL256P)
+            strcpy (mfname, "Spansion");
+        else
+            strcpy (mfname, "AMD");
         break;
     case ID_SST:
         strcpy (mfname, "SST");

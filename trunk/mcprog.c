@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.83"
+#define VERSION         "1.84"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
