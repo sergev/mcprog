@@ -621,6 +621,37 @@ static void usb_program_block64 (adapter_t *adapter,
     }
 }
 
+static void usb_program_block32_micron (adapter_t *adapter,
+    unsigned n_minus_1, unsigned addr, unsigned *data)
+{
+    usb_adapter_t *a = (usb_adapter_t*) adapter;
+    unsigned char pkt [6*(8+1)*(n_minus_1 + 2) + 6], *ptr = pkt;
+    unsigned oscr, i;
+    unsigned block_addr = addr & 0xFFC00000;
+
+    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, block_addr);
+    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, (n_minus_1 << 16) | n_minus_1);
+    for (i=0; i<=n_minus_1; i++) {
+        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        addr += 4;
+        data++;
+    }
+    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, block_addr);
+    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x00d000d0);
+    ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
+    
+    if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
+        fprintf (stderr, "Failed to program block32.\n");
+        exit (-1);
+    }
+    if (! (oscr & OSCR_RDYm)) {
+        fprintf (stderr, "Timeout programming block32, aborted. OSCR=%#x\n", oscr);
+        exit (1);
+    }
+}
+
+
 /*
  * Перевод кристалла в режим отладки путём манипуляций
  * регистрами данных JTAG.
@@ -770,6 +801,7 @@ found:
     a->adapter.program_block32_unprotect = usb_program_block32_unprotect;
     a->adapter.program_block32_protect = usb_program_block32_protect;
     a->adapter.program_block64 = usb_program_block64;
+    a->adapter.program_block32_micron = usb_program_block32_micron;
 
     return &a->adapter;
 }
