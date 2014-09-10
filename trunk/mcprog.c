@@ -402,8 +402,10 @@ void verify_block (target_t *mc, unsigned addr, int len)
         while (word != expected) {
             /* Возможно, не все нули прописались в flash-память.
              * Пробуем повторить операцию. */
-//printf ("\nerror at address %08X: file=%08X, mem=%08X ",
-//addr + i + memory_base, expected, word); fflush (stdout);
+//DEBUG
+printf ("\nerror at address %08X: file=%08X, mem=%08X ",
+addr + i + memory_base, expected, word); fflush (stdout);
+exit(1);
             if (verify_only || ! target_flash_rewrite (mc,
                 memory_base + addr + i, expected)) {
                 printf (_("\nerror at address %08X: file=%08X, mem=%08X\n"),
@@ -714,6 +716,7 @@ void do_program (char *filename, int store_info)
         if (len < 64)
             break;
     }
+    
     printf (verify_only ? _("Verify: ") : _("Program: "));
     print_symbols ('.', len);
     print_symbols ('\b', len);
