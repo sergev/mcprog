@@ -63,6 +63,8 @@ struct _adapter_t {
         unsigned nwords, unsigned base, unsigned addr, unsigned *data,
         unsigned addr_odd, unsigned addr_even,
         unsigned cmd_aa, unsigned cmd_55, unsigned cmd_a0);
+    void (*program_block32_micron) (adapter_t *adapter,
+        unsigned n_minus_1, unsigned addr, unsigned *data);
 };
 
 adapter_t *adapter_open_usb (int need_reset);

@@ -1476,12 +1476,19 @@ static void target_program_block32_micron (target_t *t, unsigned addr,
             }
         } while ((status & 0x00800080) != 0x00800080);
         n = (nwords < 16) ? (nwords - 1) : (0x000F);
-        target_write_word (t, block_addr, (n << 16) | n);
-        for (i = 0; i <= n; ++i) {
-            target_write_word (t, addr, *data++);
-            addr += 4;
+        if (t->adapter->program_block32_micron) {
+            t->adapter->program_block32_micron(t->adapter,
+                n, addr, data);
+            addr += (n + 1) * 4;
+            data += (n + 1);
+        } else {
+            target_write_word (t, block_addr, (n << 16) | n);
+            for (i = 0; i <= n; ++i) {
+                target_write_word (t, addr, *data++);
+                addr += 4;
+            }
+            target_write_word (t, block_addr, 0x00d000d0);
         }
-        target_write_word (t, block_addr, 0x00d000d0);
         nwords -= (n + 1);
     }
     timeout = 10000;
