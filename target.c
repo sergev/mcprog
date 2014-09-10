@@ -49,6 +49,7 @@ struct _target_t {
     unsigned    flash_base [NFLASH];
     unsigned    flash_last [NFLASH];
     unsigned    flash_delay;
+    int         micron_com_set;
 
     unsigned    pc_fetch, pc_dec, ir_dec, pc_exec;
     unsigned    mem0;
@@ -70,6 +71,8 @@ struct _target_t {
 #define ID_MILANDR      0x01010101
 #define ID_ANGSTREM     0xBFBFBFBF
 #define ID_SPANSION     0x01010101
+#define ID_INTEL        0x00890089
+#define ID_MICRON       0x002C002C
 
 /* Идентификатор микросхемы flash. */
 #define ID_29LV800_B    0x225b225b
@@ -81,6 +84,10 @@ struct _target_t {
 #define ID_1638PP1      0x07070707
 #define ID_S29AL032D    0x000000f9
 #define ID_S29GL256P    0x227E227E
+#define ID_MT28F320     0x00160016
+#define ID_MT28F640     0x00170017
+#define ID_MT28F128     0x00180018
+
 
 /* Команды flash. */
 #define FLASH_CMD16_AA  0x00AA00AA
@@ -1138,6 +1145,21 @@ int target_flash_detect (target_t *t, unsigned addr,
             strcpy (chipname, "S29GL256P");
             t->flash_bytes = 64*1024*1024;
             goto success;
+        case ID_MT28F320:
+            strcpy (chipname, "MT28F320");
+            t->flash_bytes = 8*1024*1024;
+            t->micron_com_set = 1;
+            goto success;
+        case ID_MT28F640:
+            strcpy (chipname, "MT28F640");
+            t->flash_bytes = 16*1024*1024;
+            t->micron_com_set = 1;
+            goto success;
+        case ID_MT28F128:
+            strcpy (chipname, "MT28F128");
+            t->flash_bytes = 32*1024*1024;
+            t->micron_com_set = 1;
+            goto success;
         }
     }
     if (debug_level > 1)
@@ -1164,6 +1186,12 @@ success:
     case ID_ANGSTREM:
         strcpy (mfname, "Angstrem");
         break;
+    case ID_INTEL:
+        strcpy (mfname, "Intel");
+        break;
+    case ID_MICRON:
+        strcpy (mfname, "Micron");
+        break;        
     /* Milandr & Spansion mf code =0x01 */
     case (unsigned char) ID_MILANDR:
         if (t->flash_width != 8)
@@ -1178,6 +1206,9 @@ unknown_mfr:
         sprintf (mfname, "<%08X>", *mf);
         break;
     }
+    
+    if (t->micron_com_set)
+        target_write_word (t, base, 0xFFFFFFFF);
 
     *bytes = t->flash_bytes;
     *width = t->flash_width;
@@ -1191,49 +1222,75 @@ int target_erase (target_t *t, unsigned addr)
     /* Chip erase. */
     base = compute_base (t, addr);
     printf (_("Erase: %08X"), base);
-    if (t->flash_width == 8) {
-        /* 8-разрядная шина. */
-        target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-        target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
-        target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
-        target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-        target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
-        target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_10);
-
-    } else if (t->flash_delay) {
-        target_write_nwords (t, 6,
-            base + t->flash_addr_odd, t->flash_cmd_aa,
-            base + t->flash_addr_even, t->flash_cmd_55,
-            base + t->flash_addr_odd, t->flash_cmd_80,
-            base + t->flash_addr_odd, t->flash_cmd_aa,
-            base + t->flash_addr_even, t->flash_cmd_55,
-            base + t->flash_addr_odd, t->flash_cmd_10);
+    if (t->micron_com_set) {
+        /* Доступно только поблочное стирание.
+         * Считаем, что размер блока в одном корпусе составляет 64Кбайт.
+         * Считаем также, что подключено 2 корпуса с 16-разрядными
+         * шинами.
+         */
+         unsigned offset = 0;
+         unsigned status;
+         unsigned timeout;
+         while (offset < t->flash_bytes) {
+            target_write_word (t, base + offset, 0x20202020);
+            target_write_word (t, base + offset, 0xd0d0d0d0);
+            timeout = 10000;
+            do {
+                status = target_read_word (t, base + offset);
+                if (timeout-- == 0) {
+                    fprintf(stderr, "Timeout while erasing block at offset 0x%08X\n", offset);
+                    return 0;
+                }
+            } while ((status & 0x00800080) != 0x00800080);
+            printf (".");
+            fflush (stdout);
+            offset += 256*1024;
+         }
+         target_write_word (t, base, 0xffffffff);
     } else {
-        target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-        target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
-        target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
-        target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-        target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
-        target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_10);
-        if (t->flash_width == 64) {
-            /* Старшая половина 64-разрядной шины. */
-            target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
-            target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
-            target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
-            target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
-            target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
-            target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_10);
+        if (t->flash_width == 8) {
+            /* 8-разрядная шина. */
+            target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+            target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+            target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
+            target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+            target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+            target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_10);
+
+        } else if (t->flash_delay) {
+            target_write_nwords (t, 6,
+                base + t->flash_addr_odd, t->flash_cmd_aa,
+                base + t->flash_addr_even, t->flash_cmd_55,
+                base + t->flash_addr_odd, t->flash_cmd_80,
+                base + t->flash_addr_odd, t->flash_cmd_aa,
+                base + t->flash_addr_even, t->flash_cmd_55,
+                base + t->flash_addr_odd, t->flash_cmd_10);
+        } else {
+            target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+            target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+            target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
+            target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+            target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+            target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_10);
+            if (t->flash_width == 64) {
+                /* Старшая половина 64-разрядной шины. */
+                target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+                target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+                target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
+                target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+                target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+                target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_10);
+            }
         }
     }
     for (;;) {
-        fflush (stdout);
-        mdelay (250);
         word = target_read_word (t, base);
         if (word == 0xffffffff)
             break;
+        fflush (stdout);
+        mdelay (250);
         printf (".");
     }
-    mdelay (250);
     printf (_(" done\n"));
     return 1;
 }
@@ -1321,7 +1378,7 @@ void target_read_block (target_t *t, unsigned addr,
     target_read_start (t);
     for (i=0; i<nwords; i++, addr+=4)
         *data++ = target_read_next (t, addr);
-//fprintf (stderr, "    done (addr = %x)\n", addr);
+fprintf (stderr, "    done (addr = %x)\n", addr);
 }
 
 void target_write_block (target_t *t, unsigned addr,
@@ -1397,6 +1454,58 @@ static void target_program_block32 (target_t *t, unsigned addr,
             addr, *data++);
         addr += 4;
     }
+}
+
+static void target_program_block32_micron (target_t *t, unsigned addr,
+    unsigned base, unsigned nwords, unsigned *data)
+{
+    /* Считаем также, что подключено 2 корпуса с 16-разрядными шинами. */
+    unsigned block_addr = addr & 0xFFC00000;
+    unsigned status, timeout;
+    int i, n;
+    
+    while (nwords > 0) {
+        timeout = 10000;
+        do {
+            target_write_word (t, block_addr, 0x00e800e8);
+            status = target_read_word (t, block_addr);
+            if (timeout-- == 0) {
+                fprintf(stderr, "Timeout while programming block\n");
+                target_write_word (t, block_addr, 0xffffffff);
+                return;
+            }
+        } while ((status & 0x00800080) != 0x00800080);
+        n = (nwords < 16) ? (nwords - 1) : (0x000F);
+        target_write_word (t, block_addr, (n << 16) | n);
+        for (i = 0; i <= n; ++i) {
+            target_write_word (t, addr, *data++);
+            addr += 4;
+        }
+        target_write_word (t, block_addr, 0x00d000d0);
+        nwords -= (n + 1);
+    }
+    timeout = 10000;
+    do {
+        status = target_read_word (t, block_addr);
+        if (timeout-- == 0) {
+            fprintf(stderr, "Timeout while programming block\n");
+            target_write_word (t, block_addr, 0xffffffff);
+            return;
+        }
+    } while ((status & 0x00800080) != 0x00800080);
+
+    timeout = 10000;
+    do {
+        target_write_word (t, block_addr, 0x00700070);
+        status = target_read_word (t, block_addr);
+        if (timeout-- == 0) {
+            fprintf(stderr, "Timeout while programming block\n");
+            target_write_word (t, block_addr, 0xffffffff);
+            return;
+        }
+    } while ((status & 0x00800080) != 0x00800080);
+    
+    target_write_word (t, block_addr, 0xffffffff);
 }
 
 static void target_program_block32_atmel (target_t *t, unsigned addr,
@@ -1494,7 +1603,9 @@ void target_program_block (target_t *t, unsigned addr,
         target_program_block8 (t, addr, base, nwords, data);
         break;
     case 32:
-        if (t->flash_delay) {
+        if (t->micron_com_set) {
+            target_program_block32_micron (t, addr, base, nwords, data);
+        } else if (t->flash_delay) {
             target_program_block32_atmel (t,
                 addr, base, nwords, data);
         } else {
@@ -1576,8 +1687,10 @@ void target_resume (target_t *t)
 
 void target_run (target_t *t, unsigned addr)
 {
-    if (t->is_running)
+    if (t->is_running) {
+        fprintf(stderr, "Target is already running!\n");
         return;
+    }
 
     /* Изменение адреса следующей команды реализуется
      * аналогично входу в отработчик исключения. */
