@@ -80,6 +80,7 @@ struct _target_t {
 #define ID_39VF800_A    0x27812781
 #define ID_39VF6401_B   0x236d236d
 #define ID_39VF6402_B   0x236c236c
+#define ID_1636PP1Y     0x4f4f4f4f
 #define ID_1636PP2Y     0xc8c8c8c8
 #define ID_1638PP1      0x07070707
 #define ID_S29AL032D    0x000000f9
@@ -1053,7 +1054,9 @@ int target_flash_detect (target_t *t, unsigned addr,
                 *mf = (unsigned char) *mf;
             } else {
                 *dev = (unsigned char) (*mf >> 8);
+                *dev = *dev | (*dev << 8) | (*dev << 16) | (*dev << 24);
                 *mf = (unsigned char) *mf;
+                *mf = *mf | (*mf << 8) | (*mf << 16) | (*mf << 24);
             }
 
             /* Stop read ID mode. */
@@ -1122,6 +1125,10 @@ int target_flash_detect (target_t *t, unsigned addr,
         case ID_39VF6402_B:
             strcpy (chipname, "39VF6402B");
             t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
+            goto success;
+        case ID_1636PP1Y:
+            strcpy (chipname, "1636PP1Y");
+            t->flash_bytes = 512*1024;
             goto success;
         case ID_1636PP2Y:
             strcpy (chipname, "1636PP2Y");
