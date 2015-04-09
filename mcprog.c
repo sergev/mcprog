@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.86"
+#define VERSION         "1.87"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -402,10 +402,6 @@ void verify_block (target_t *mc, unsigned addr, int len)
         while (word != expected) {
             /* Возможно, не все нули прописались в flash-память.
              * Пробуем повторить операцию. */
-//DEBUG
-printf ("\nerror at address %08X: file=%08X, mem=%08X ",
-addr + i + memory_base, expected, word); fflush (stdout);
-exit(1);
             if (verify_only || ! target_flash_rewrite (mc,
                 memory_base + addr + i, expected)) {
                 printf (_("\nerror at address %08X: file=%08X, mem=%08X\n"),
