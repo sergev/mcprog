@@ -1302,13 +1302,14 @@ int target_erase (target_t *t, unsigned addr)
     return 1;
 }
 
-/*
- * Повторная запись реализована только для 8-битной flash-памяти.
- */
 int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
 {
-    unsigned bad, base;
+    unsigned bad = 0, base;
     unsigned char byte;
+    static unsigned nb_rewrites = 0;
+    
+    nb_rewrites++;
+    //printf("nb_rewrites = %d\n", nb_rewrites);    
 
     base = compute_base (t, addr);
     if (addr >= 0xA0000000)
@@ -1317,12 +1318,14 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
         addr -= 0x80000000;
 
     /* Повтор записи возможен, только если не прописались нули. */
+    /*
     bad = target_read_word (t, addr);
     if ((bad & word) != word) {
         fprintf (stderr, _("target: cannot rewrite word at %x: good %08x bad %08x\n"),
             addr, word, bad);
         exit (1);
     }
+    */
 
     switch (t->flash_width) {
     case 8:
@@ -1348,7 +1351,7 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     case 32:
         if (t->flash_delay)
             return 0;
-fprintf (stderr, _("\nrewrite word %02x at %08x "), word, addr); fflush (stderr);
+//fprintf (stderr, _("\nrewrite word %08x at %08x (bad: %08X)"), word, addr, bad); fflush (stderr);
         target_write_nwords (t, 4,
             base + t->flash_addr_odd, t->flash_cmd_aa,
             base + t->flash_addr_even, t->flash_cmd_55,

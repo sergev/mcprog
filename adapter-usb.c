@@ -417,6 +417,7 @@ static void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
 static void usb_read_block (adapter_t *adapter,
     unsigned nwords, unsigned addr, unsigned *data)
 {
+//printf("usb_read_block @ %08X\n", addr);
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
@@ -448,6 +449,13 @@ static void usb_read_block (adapter_t *adapter,
         fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
         exit (1);
     }
+    
+/*
+    for (i = 0; i < nwords; ++i) {
+        printf("%02X ", data[i]);
+    }
+    printf("\n");
+*/
 }
 
 static void usb_program_block32 (adapter_t *adapter,
@@ -458,8 +466,7 @@ static void usb_program_block32 (adapter_t *adapter,
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned char pkt [6*(8+1)*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
-//printf ("usb_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n",
-//nwords, base, addr, cmd_aa, cmd_55, cmd_a0);
+//printf ("usb_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n", nwords, base, addr, cmd_aa, cmd_55, cmd_a0);
     for (i=0; i<nwords; i++) {
         ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
         ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);

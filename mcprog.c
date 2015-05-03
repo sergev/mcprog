@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.87"
+#define VERSION         "1.88"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -386,6 +386,7 @@ void progress ()
 void verify_block (target_t *mc, unsigned addr, int len)
 {
     int i;
+    int try;
     unsigned word, expected, block [BLOCKSZ/4];
 
 //printf("memory_base+addr=0x%x;(len+3)/4=%d\n",memory_base+addr,(len+3)/4);
@@ -399,6 +400,7 @@ void verify_block (target_t *mc, unsigned addr, int len)
         if (debug_level > 1)
             printf (_("read word %08X at address %08X\n"),
                 word, addr + i + memory_base);
+        try = 0;
         while (word != expected) {
             /* Возможно, не все нули прописались в flash-память.
              * Пробуем повторить операцию. */
@@ -412,6 +414,11 @@ void verify_block (target_t *mc, unsigned addr, int len)
             printf ("%%\b");
             fflush (stdout);
             word = target_read_word (mc, memory_base + addr + i);
+            if (++try > 3) {
+                printf (_("\nerror at address %08X: file=%08X, mem=%08X\n"),
+                    addr + i + memory_base, expected, word);
+                exit (1);
+            }
         }
     }
 }
@@ -613,11 +620,29 @@ void do_probe ()
  */
 static int check_clean (target_t *t, unsigned addr)
 {
-    unsigned offset, i, sz, end, mem [16*1024];
+    unsigned offset, i, sz, mem_size, end, mem [16*1024];
+    void *t0;
+    int len;
 
-    sz = target_flash_bytes (t);
-    addr &= ~(sz-1);
-    end = addr + sz;
+    mem_size = target_flash_bytes (t);
+    addr &= ~(mem_size-1);
+    end = addr + mem_size;
+    
+    printf (_("Checking clean: "));
+
+    for (progress_step=1; ; progress_step<<=1) {
+        len = 1 + mem_size / progress_step / sizeof(mem);
+        if (len < 64)
+            break;
+    }
+        
+    print_symbols ('.', len);
+    print_symbols ('\b', len);
+    fflush (stdout);
+
+    progress_count = 0;
+    t0 = fix_time ();
+
     for (offset=0; addr+offset<end; offset+=sizeof(mem)) {
         sz = sizeof (mem);
         if (sz + offset > end)
@@ -625,11 +650,18 @@ static int check_clean (target_t *t, unsigned addr)
         sz /= sizeof(unsigned);
         target_read_block (t, addr + offset, sz, mem);
         for (i=0; i<sz; i++) {
-            if (mem[i] != 0xffffffff)
+            if (mem[i] != 0xffffffff) {
+                printf (_("Flash @ %08X is NOT clean!\n"), addr);
                 return 0;
+            }
         }
+        progress ();
     }
-    printf (_("Clean flash: %08X\n"), addr);
+    printf (_("# done\n"));
+    printf (_("Rate: %ld bytes per second\n"),
+        mem_size * 1000L / mseconds_elapsed (t0));
+    printf (_("Flash @ %08X is clean!\n"), addr);
+    
     return 1;
 };
 
@@ -712,12 +744,11 @@ void do_program (char *filename, int store_info)
         if (len < 64)
             break;
     }
-    
     printf (verify_only ? _("Verify: ") : _("Program: "));
     print_symbols ('.', len);
     print_symbols ('\b', len);
     fflush (stdout);
-
+    
     progress_count = 0;
     t0 = fix_time ();
     for (addr=0; (int)addr<memory_len; addr+=BLOCKSZ) {
@@ -834,6 +865,65 @@ void do_read (char *filename)
     fclose (fd);
 }
 
+void do_erase ()
+{
+    unsigned mfcode, devcode, bytes, width;
+    char mfname[40], devname[40];
+
+    /* Open and detect the device. */
+    atexit (quit);
+    target = target_open (1);
+    if (! target) {
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
+        exit (1);
+    }
+    target_stop (target);
+    printf (_("Processor: %s\n"), target_cpu_name (target));
+
+    configure ();
+    if (! target_flash_detect (target, memory_base,
+        &mfcode, &devcode, mfname, devname, &bytes, &width)) {
+        printf (_("No flash memory detected.\n"));
+        return;
+    }
+    printf (_("Flash: %s %s"), mfname, devname);
+    if (bytes % (1024*1024) == 0)
+        printf (_(", size %d Mbytes, %d bit wide\n"), bytes / 1024 / 1024, width);
+    else
+        printf (_(", size %d kbytes, %d bit wide\n"), bytes / 1024, width);
+
+    target_erase (target, memory_base);
+}
+
+void do_check_clean ()
+{
+    unsigned mfcode, devcode, bytes, width;
+    char mfname[40], devname[40];
+
+    /* Open and detect the device. */
+    atexit (quit);
+    target = target_open (1);
+    if (! target) {
+        fprintf (stderr, _("Error detecting device -- check cable!\n"));
+        exit (1);
+    }
+    target_stop (target);
+    printf (_("Processor: %s\n"), target_cpu_name (target));
+
+    configure ();
+    if (! target_flash_detect (target, memory_base,
+        &mfcode, &devcode, mfname, devname, &bytes, &width)) {
+        printf (_("No flash memory detected.\n"));
+        return;
+    }
+    printf (_("Flash: %s %s"), mfname, devname);
+    if (bytes % (1024*1024) == 0)
+        printf (_(", size %d Mbytes, %d bit wide\n"), bytes / 1024 / 1024, width);
+    else
+        printf (_(", size %d kbytes, %d bit wide\n"), bytes / 1024, width);
+
+    check_clean (target, memory_base);
+}
 
 void do_info()
 {
@@ -912,6 +1002,7 @@ static void gpl_show_warranty (void)
 int main (int argc, char **argv)
 {
     int ch, read_mode = 0, memory_write_mode = 0, info_mode = 0, store_info = 0;
+    int erase_only = 0;
     static const struct option long_options[] = {
         { "help",        0, 0, 'h' },
         { "warranty",    0, 0, 'W' },
@@ -945,9 +1036,12 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:",
+    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:E",
       long_options, 0)) != -1) {
         switch (ch) {
+        case 'E':
+            ++erase_only;
+            continue;
         case 'e':
             skip_erase=strtoul (optarg, 0, 0) ? 0 : 1;
             continue;
@@ -1018,7 +1112,8 @@ usage:
         printf ("       address             Address of flash memory, default 0x%08X\n",
             DEFAULT_ADDR);
         printf ("       -c                  Check clean\n");
-        printf ("       -e erase            Need erase (default)\n");	
+        printf ("       -e erase            Erase before programming (0 - do not erase, 1 (default) - erase)\n");	
+        printf ("       -E                  Erase chip only\n");	        
         printf ("       -v                  Verify only\n");
         printf ("       -w                  Memory write mode\n");
         printf ("       -r                  Read mode\n");
@@ -1044,25 +1139,41 @@ usage:
         if (info_mode) {
             memory_base = DEFAULT_ADDR;
             do_info();
-	} else {
+        } else if (erase_only) {
+            memory_base = DEFAULT_ADDR;
+            do_erase ();
+            if (check_erase) do_check_clean ();
+        } else if (check_erase) {
+            memory_base = DEFAULT_ADDR;
+            do_check_clean ();
+        } else {
             do_probe ();
         }
         break;
     case 1:
-        memory_len = read_srec (argv[0], memory_data);
-        if (memory_len == 0) {
-            memory_len = read_hex (argv[0], memory_data);
+        if (erase_only) {
+            memory_base = strtoul (argv[0], 0, 0);
+            do_erase ();
+            if (check_erase) do_check_clean ();
+        } else if (check_erase) {
+            memory_base = strtoul (argv[0], 0, 0);
+            do_check_clean ();
+        } else {
+            memory_len = read_srec (argv[0], memory_data);
             if (memory_len == 0) {
-                memory_base = DEFAULT_ADDR;
-                memory_len = read_bin (argv[0], memory_data);
+                memory_len = read_hex (argv[0], memory_data);
+                if (memory_len == 0) {
+                    memory_base = DEFAULT_ADDR;
+                    memory_len = read_bin (argv[0], memory_data);
+                }
             }
+            if (info_mode)
+                do_info();
+            else if (memory_write_mode)
+                do_write ();
+            else
+                do_program (argv[0], store_info);
         }
-        if (info_mode)
-            do_info();
-        else if (memory_write_mode)
-            do_write ();
-        else
-            do_program (argv[0], store_info);
         break;
     case 2:
         memory_base = strtoul (argv[1], 0, 0);
