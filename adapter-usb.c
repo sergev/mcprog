@@ -85,16 +85,17 @@ typedef struct {
 #define H_12        0x10        /* 16 бит данных */
 #define H_TRST      0x08        /* TRST */
 #define H_SYSRST    0x04        /* SYS_RST */
-#if 1
 #define H_BLKWR     0x01        /* блочная запись */
 #define H_BLKRD     0x02        /* блочное чтение */
 #define H_BLKEND    0x03        /* конец блочной операции */
-#else
-#define H_BLKWR     0x09        /* неблочная запись */
-#define H_BLKRD     0x0a        /* неблочное чтение */
-#define H_BLKEND    0x0b        /* конец неблочной операции */
-#endif
+#define H_SNGLWR    0x09        /* неблочная запись */
+#define H_SNGLRD    0x0a        /* неблочное чтение */
+#define H_SNGLEND   0x0b        /* конец неблочной операции */
 #define H_IDCODE    0x03        /* запрос idcode */
+
+int h_wr = H_BLKWR;
+int h_rd = H_BLKRD;
+int h_end = H_BLKEND;
 
 #if 0
 /*
@@ -374,10 +375,10 @@ static void usb_write_block (adapter_t *adapter,
     unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
 
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
     for (i=1; i<nwords; i++)
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMDR, *data++);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMDR, *data++);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
@@ -399,8 +400,8 @@ static void usb_write_nwords (adapter_t *adapter, unsigned nwords, va_list args)
     for (i=0; i<nwords; i++) {
         addr = va_arg (args, unsigned);
         data = va_arg (args, unsigned);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, data);
     }
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
@@ -422,19 +423,19 @@ static void usb_read_block (adapter_t *adapter,
     unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
     
-#if 1
-    /* Блочное чтение. */
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMAR, addr);
-    for (i=1; i<nwords; i++)
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
-#else
-    /* Неблочное чтение. */
-    ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMAR, addr);
-    for (i=1; i<nwords; i++)
-        ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKRD), OnCD_OMDR | IRd_READ, 0);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
-#endif
+	if (h_rd == H_BLKRD) {
+		/* Блочное чтение. */
+		ptr = fill_pkt (ptr, HDR (H_32 | h_rd), OnCD_OMAR, addr);
+		for (i=1; i<nwords; i++)
+			ptr = fill_pkt (ptr, HDR (H_32 | h_rd), OnCD_OMDR | IRd_READ, 0);
+		ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR | IRd_READ, 0);
+	} else {
+		/* Неблочное чтение. */
+		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | h_rd), OnCD_OMAR, addr);
+		for (i=1; i<nwords; i++)
+			ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | h_rd), OnCD_OMDR | IRd_READ, 0);
+		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | h_end), OnCD_OMDR | IRd_READ, 0);
+	}
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
     
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt,
@@ -469,14 +470,14 @@ static void usb_program_block32 (adapter_t *adapter,
     unsigned oscr, i;
 //printf ("usb_program_block32 (nwords = %d, base = %x, addr = %x, cmd_aa = %08x, cmd_55 = %08x, cmd_a0 = %08x)\n", nwords, base, addr, cmd_aa, cmd_55, cmd_a0);
     for (i=0; i<nwords; i++) {
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_aa);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_even);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_55);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_a0);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
         /* delay */
         ptr = fill_pkt (ptr, HDR (H_32), OnCD_OMDR, 0);
         addr += 4;
@@ -505,18 +506,18 @@ static void usb_program_block32_unprotect (adapter_t *adapter,
 
     mdelay (10);
 //printf ("usb_program_block32_unprotect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x80808080);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x20202020);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_aa);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_even);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_55);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, 0x80808080);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_aa);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_even);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_55);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, 0x20202020);
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
         fprintf (stderr, "Failed to program block32 Atmel.\n");
@@ -530,8 +531,8 @@ static void usb_program_block32_unprotect (adapter_t *adapter,
 
     ptr = pkt;
     for (i=0; i<nwords; i++) {
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
         addr += 4;
         data++;
     }
@@ -559,12 +560,12 @@ static void usb_program_block32_protect (adapter_t *adapter,
 
     mdelay (10);
 //printf ("usb_program_block32_protect (nwords = %d, base = %x, addr = %x)\n", nwords, base, addr);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_aa);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_even);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_55);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_a0);
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
         fprintf (stderr, "Failed to program block32 Atmel.\n");
@@ -578,8 +579,8 @@ static void usb_program_block32_protect (adapter_t *adapter,
 
     ptr = pkt;
     for (i=0; i<nwords; i++) {
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
         addr += 4;
         data++;
     }
@@ -606,14 +607,14 @@ static void usb_program_block64 (adapter_t *adapter,
     unsigned oscr, i;
 //printf ("usb_program_block64 (nwords = %d, base = %x, cmd_a0 = %08x,  addr = %x)\n", nwords, base, cmd_a0, addr);
     for (i=0; i<nwords; i++) {
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd + (addr & 4));
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_aa);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_even + (addr & 4));
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_55);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, base + addr_odd + (addr & 4));
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, cmd_a0);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd + (addr & 4));
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_aa);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_even + (addr & 4));
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_55);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, base + addr_odd + (addr & 4));
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, cmd_a0);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
         addr += 4;
         data++;
     }
@@ -637,16 +638,16 @@ static void usb_program_block32_micron (adapter_t *adapter,
     unsigned oscr, i;
     unsigned block_addr = addr & 0xFFC00000;
 
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, block_addr);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, (n_minus_1 << 16) | n_minus_1);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, block_addr);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, (n_minus_1 << 16) | n_minus_1);
     for (i=0; i<=n_minus_1; i++) {
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, addr);
-        ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, *data);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, addr);
+        ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, *data);
         addr += 4;
         data++;
     }
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, block_addr);
-    ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x00d000d0);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_wr), OnCD_OMAR, block_addr);
+    ptr = fill_pkt (ptr, HDR (H_32 | h_end), OnCD_OMDR, 0x00d000d0);
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
 
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
@@ -717,7 +718,7 @@ static void usb_close_adapter (adapter_t *adapter)
  * Возвращаем указатель на структуру данных, выделяемую динамически.
  * Если адаптер не обнаружен, возвращаем 0.
  */
-adapter_t *adapter_open_usb (int need_reset)
+adapter_t *adapter_open_usb (int need_reset, int disable_block_op)
 {
     static const unsigned char pkt_reset[8] = {
         /* Посылаем команду чтения MEM, но с активным TRST. */
@@ -728,6 +729,12 @@ adapter_t *adapter_open_usb (int need_reset)
     struct usb_bus *bus;
     struct usb_device *dev;
     unsigned char rb [2];
+    
+    if (disable_block_op) {
+		h_wr = H_SNGLWR;
+		h_rd = H_SNGLRD;
+		h_end = H_SNGLEND;
+	}
 
     usb_init ();
     usb_find_busses ();

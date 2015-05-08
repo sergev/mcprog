@@ -45,6 +45,7 @@ int memory_len;
 unsigned memory_base;
 unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
+int disable_block = 0;
 int erase_mode = -1;
 int check_erase;
 int verify_only;
@@ -61,15 +62,15 @@ const char *copyright;
  */
 int check_hex (char *str)
 {
-	int i, n;
+    int i, n;
 
-	if ((str[0]!='0')||(str[1]!='x')) return 1;
-	n = strlen(str);
-	if (n > 10) return 1;
-	for (i=2; i<n; i++) {
-		if (! isxdigit(str[i])) return 1;
-	};
-	return 0;
+    if ((str[0]!='0')||(str[1]!='x')) return 1;
+    n = strlen(str);
+    if (n > 10) return 1;
+    for (i=2; i<n; i++) {
+        if (! isxdigit(str[i])) return 1;
+    };
+    return 0;
 };
 
 void *fix_time ()
@@ -235,53 +236,53 @@ int read_hex (char *filename, unsigned char *output)
             fprintf (stderr, _("%s: bad record: %s\n"), filename, buf);
             exit (1);
         }
-	record_type = HEX (buf+7);
-	if (record_type == 1) {
-	    /* End of file. */
+    record_type = HEX (buf+7);
+    if (record_type == 1) {
+        /* End of file. */
             break;
         }
-	if (record_type == 5) {
-	    /* Start address, ignore. */
-	    continue;
-	}
+    if (record_type == 5) {
+        /* Start address, ignore. */
+        continue;
+    }
 
-	bytes = HEX (buf+1);
+    bytes = HEX (buf+1);
         if (bytes & 1) {
             fprintf (stderr, _("%s: odd length\n"), filename);
             exit (1);
         }
-	if (strlen ((char*) buf) < bytes * 2 + 11) {
+    if (strlen ((char*) buf) < bytes * 2 + 11) {
             fprintf (stderr, _("%s: too short hex line\n"), filename);
             exit (1);
         }
-	address = high << 16 | HEX (buf+3) << 8 | HEX (buf+5);
+    address = high << 16 | HEX (buf+3) << 8 | HEX (buf+5);
         if (address & 3) {
             fprintf (stderr, _("%s: odd address\n"), filename);
             exit (1);
         }
 
-	sum = 0;
-	for (i=0; i<bytes; ++i) {
+    sum = 0;
+    for (i=0; i<bytes; ++i) {
             data [i] = HEX (buf+9 + i + i);
-	    sum += data [i];
-	}
-	sum += record_type + bytes + (address & 0xff) + (address >> 8 & 0xff);
-	if (sum != (unsigned char) - HEX (buf+9 + bytes + bytes)) {
+        sum += data [i];
+    }
+    sum += record_type + bytes + (address & 0xff) + (address >> 8 & 0xff);
+    if (sum != (unsigned char) - HEX (buf+9 + bytes + bytes)) {
             fprintf (stderr, _("%s: bad hex checksum\n"), filename);
             exit (1);
         }
 
-	if (record_type == 4) {
-	    /* Extended address. */
+    if (record_type == 4) {
+        /* Extended address. */
             if (bytes != 2) {
                 fprintf (stderr, _("%s: invalid hex linear address record length\n"),
                     filename);
                 exit (1);
             }
-	    high = data[0] << 8 | data[1];
-	    continue;
-	}
-	if (record_type != 0) {
+        high = data[0] << 8 | data[1];
+        continue;
+    }
+    if (record_type != 0) {
             fprintf (stderr, _("%s: unknown hex record type: %d\n"),
                 filename, record_type);
             exit (1);
@@ -338,13 +339,13 @@ void print_board_info (sw_info *pinfo)
 {
     struct tm *creat_date;
     if (pinfo) {
-	if (isprint (pinfo->board_sn[0]))
+    if (isprint (pinfo->board_sn[0]))
             printf (_("Board serial number:      %s\n"), pinfo->board_sn);
-	if (isprint (pinfo->sw_version[0]))
+    if (isprint (pinfo->sw_version[0]))
             printf (_("Software version:         %s\n"), pinfo->sw_version);
         if (isprint (pinfo->filename[0])) {
             printf (_("Software file name:       %s\n"), pinfo->filename);
-			creat_date = localtime (&pinfo->time);
+            creat_date = localtime (&pinfo->time);
             printf (_("Date of creation:         %02d.%02d.%04d\n"),
                      creat_date->tm_mday, creat_date->tm_mon + 1, creat_date->tm_year + 1900);
             printf (_("Memory size:              %d\n"), pinfo->len);
@@ -548,13 +549,13 @@ void configure_parameter (char *section, char *param, char *value)
         }
         printf ("  %s = %08X-%08X\n", param, first, last);
         target_flash_configure (target, first, last);
-	} else if ((check_hex(param) == 0) && (check_hex(value) == 0)) {
-		sscanf(param,"%x",&addr);
-		sscanf(value,"%x",&word);
-		target_write_word (target, addr, word);
+    } else if ((check_hex(param) == 0) && (check_hex(value) == 0)) {
+        sscanf(param,"%x",&addr);
+        sscanf(value,"%x",&word);
+        target_write_word (target, addr, word);
         if (debug_level > 1)
             printf("%08x=%08x (%s)(%08x)\n",addr,word,value,target_read_word(target,addr));
-	} else {
+    } else {
         fprintf (stderr, _("%s: unknown parameter `%s'\n"),
             confname, param);
         exit (-1);
@@ -594,7 +595,7 @@ void do_probe ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -627,7 +628,7 @@ static int check_clean (target_t *t, unsigned addr)
     mem_size = target_flash_bytes (t);
     addr &= ~(mem_size-1);
     end = addr + mem_size;
-    
+
     printf (_("Checking clean: "));
 
     for (progress_step=1; ; progress_step<<=1) {
@@ -635,7 +636,7 @@ static int check_clean (target_t *t, unsigned addr)
         if (len < 64)
             break;
     }
-        
+
     print_symbols ('.', len);
     print_symbols ('\b', len);
     fflush (stdout);
@@ -661,7 +662,7 @@ static int check_clean (target_t *t, unsigned addr)
     printf (_("Rate: %ld bytes per second\n"),
         mem_size * 1000L / mseconds_elapsed (t0));
     printf (_("Flash @ %08X is clean!\n"), addr);
-    
+
     return 1;
 };
 
@@ -673,18 +674,18 @@ void do_program (char *filename, int store_info)
     int len;
     void *t0;
     sw_info *pinfo;
-	sw_info zero_sw_info;
+    sw_info zero_sw_info;
     struct stat file_stat;
-    
+
     if (erase_mode < 0)
-		erase_mode = 1; // default erase mode
+        erase_mode = 1; // default erase mode
 
     printf (_("Memory: %08X-%08X, total %d bytes\n"), memory_base,
         memory_base + memory_len, memory_len);
 
     if (store_info) {
         /* Store length and checksum. */
-	len = (memory_len < AREA_SIZE) ? (memory_len) : (AREA_SIZE);
+    len = (memory_len < AREA_SIZE) ? (memory_len) : (AREA_SIZE);
         pinfo = find_info ((char *)memory_data, len);
         if (!pinfo) {
                 printf (_("No software information label found. Did you labeled it with verstamp utility?\n"));
@@ -693,29 +694,29 @@ void do_program (char *filename, int store_info)
         memset ( &pinfo->len, 0, sizeof(sw_info) - sizeof(pinfo->label));
         pinfo->len = memory_len;
         if (board_serial) {
-	    if (strlen (board_serial) > sizeof(pinfo->board_sn))
-		printf (_("Warning: board number is too large. Must be %ld bytes at most. Will be cut\n"),
-			sizeof(pinfo->board_sn));
-	    strcpy (pinfo->board_sn, board_serial);
-	}
-	strcpy (pinfo->filename, basename(filename));
-	stat (filename, &file_stat);
-	pinfo->time = file_stat.st_mtime;
+        if (strlen (board_serial) > sizeof(pinfo->board_sn))
+        printf (_("Warning: board number is too large. Must be %ld bytes at most. Will be cut\n"),
+            sizeof(pinfo->board_sn));
+        strcpy (pinfo->board_sn, board_serial);
+    }
+    strcpy (pinfo->filename, basename(filename));
+    stat (filename, &file_stat);
+    pinfo->time = file_stat.st_mtime;
 
-	/* Calculating checksum by parts. Instead of sw_info zeroes are summed */
-	memset ( &zero_sw_info, 0, sizeof(sw_info));
-	pinfo->crc = compute_checksum (0, memory_data, (char*)pinfo - (char*)memory_data);
-	pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) &zero_sw_info, sizeof(sw_info));
-	pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) pinfo + sizeof(sw_info),
-	     memory_len - ((char *)pinfo + sizeof(sw_info) - (char *)memory_data));
+    /* Calculating checksum by parts. Instead of sw_info zeroes are summed */
+    memset ( &zero_sw_info, 0, sizeof(sw_info));
+    pinfo->crc = compute_checksum (0, memory_data, (char*)pinfo - (char*)memory_data);
+    pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) &zero_sw_info, sizeof(sw_info));
+    pinfo->crc = compute_checksum (pinfo->crc, (unsigned char*) pinfo + sizeof(sw_info),
+         memory_len - ((char *)pinfo + sizeof(sw_info) - (char *)memory_data));
 
-	printf (_("\nLoaded software information:\n----------------------------\n"));
+    printf (_("\nLoaded software information:\n----------------------------\n"));
         print_board_info (pinfo);
     }
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -738,9 +739,9 @@ void do_program (char *filename, int store_info)
     if (! verify_only) {
         /* Erase flash. */
         if (! check_erase || ! check_clean (target, memory_base)) {
-	    if (erase_mode != 0)
-	      target_erase (target, memory_base);
-	}
+        if (erase_mode != 0)
+          target_erase (target, memory_base);
+    }
     }
     for (progress_step=1; ; progress_step<<=1) {
         len = 1 + memory_len / progress_step / BLOCKSZ;
@@ -751,7 +752,7 @@ void do_program (char *filename, int store_info)
     print_symbols ('.', len);
     print_symbols ('\b', len);
     fflush (stdout);
-    
+
     progress_count = 0;
     t0 = fix_time ();
     for (addr=0; (int)addr<memory_len; addr+=BLOCKSZ) {
@@ -779,7 +780,7 @@ void do_write ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -832,14 +833,14 @@ void do_read (char *filename)
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
     }
     target_stop (target);
     configure ();
-    
+
     if (! target_flash_detect (target, memory_base,
         &mfcode, &devcode, mfname, devname, &bytes, &width)) {
         printf (_("No flash memory detected.\n"));
@@ -889,7 +890,7 @@ void do_erase ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -919,7 +920,7 @@ void do_check_clean ()
 
     /* Open and detect the device. */
     atexit (quit);
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -946,7 +947,7 @@ void do_info()
 {
     sw_info *pinfo;
 
-    target = target_open (1);
+    target = target_open (1, disable_block);
     if (! target) {
         fprintf (stderr, _("Error detecting device -- check cable!\n"));
         exit (1);
@@ -958,7 +959,7 @@ void do_info()
     unsigned i;
     unsigned flash_base;
     for (i = 0; i < NFLASH; ++i) {
-	flash_base = target_flash_address(target, i);
+    flash_base = target_flash_address(target, i);
         if (flash_base == ~0) break;
 
         target_read_block (target, flash_base, (AREA_SIZE + 3) / 4, (unsigned *)memory_data);
@@ -1053,7 +1054,7 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:",
+    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:d",
       long_options, 0)) != -1) {
         switch (ch) {
         case 'E':
@@ -1062,7 +1063,7 @@ int main (int argc, char **argv)
         case 'e':
             erase_mode=strtoul (optarg, 0, 0);
             if (erase_mode < 0 || erase_mode > 2)
-				break;
+                break;
             continue;
         case 'c':
             ++check_erase;
@@ -1093,6 +1094,9 @@ int main (int argc, char **argv)
             continue;
         case 's':
             ++store_info;
+            continue;
+        case 'd':
+            ++disable_block;
             continue;
         case 'h':
             break;
@@ -1127,7 +1131,7 @@ usage:
         printf ("\nErase flash chip:\n");
         printf ("       mcprog -e1 [address]\n");
         printf ("\nCheck flash is clean:\n");
-        printf ("       mcprog -c [address]\n");        
+        printf ("       mcprog -c [address]\n");
         printf ("\nArgs:\n");
         printf ("       file.srec           Code file in SREC format\n");
         printf ("       file.hex            Code file in HEX format\n");
@@ -1136,16 +1140,17 @@ usage:
             DEFAULT_ADDR);
         printf ("       -c                  Check clean\n");
         printf ("       -e erase            Erase mode\n");
-		printf ("                           (0 - do not erase, 1 (default) - erase chip,\n");
-		printf ("                            2 - erase only place for programmed file)\n");
+        printf ("                           (0 - do not erase, 1 (default) - erase chip,\n");
+        printf ("                            2 - erase only place for programmed file)\n");
         printf ("       -v                  Verify only\n");
         printf ("       -w                  Memory write mode\n");
         printf ("       -r                  Read mode\n");
-	printf ("       -i                  Read software information\n");
+        printf ("       -i                  Read software information\n");
         printf ("       -b type             Specify board type\n");
         printf ("       -s                  Compute and store software information\n");
-	printf ("       -n serial           Specify board serial number\n");
+        printf ("       -n serial           Specify board serial number\n");
         printf ("       -g addr             Start execution from address\n");
+        printf ("       -d                  Disable block mode (only for Elvees USB JTAG adapter)\n");
         printf ("       -D                  Debug mode\n");
         printf ("       -h, --help          Print this help message\n");
         printf ("       -V, --version       Print version\n");

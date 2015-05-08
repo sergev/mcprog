@@ -67,7 +67,7 @@ struct _adapter_t {
         unsigned n_minus_1, unsigned addr, unsigned *data);
 };
 
-adapter_t *adapter_open_usb (int need_reset);
+adapter_t *adapter_open_usb (int need_reset, int disable_block_op);
 adapter_t *adapter_open_lpt (void);
 adapter_t *adapter_open_bitbang (void);
 adapter_t *adapter_open_mpsse (void);

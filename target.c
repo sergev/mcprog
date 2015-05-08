@@ -777,7 +777,7 @@ void target_write_2bytes (target_t *t, unsigned addr1, unsigned data1,
  * Не надо сбрасывать процессор!
  * Программа должна продолжать выполнение.
  */
-target_t *target_open (int need_reset)
+target_t *target_open (int need_reset, int disable_block)
 {
     int i;
     target_t *t;
@@ -792,7 +792,7 @@ target_t *target_open (int need_reset)
     t->flash_last[0] = ~0;
 
     /* Ищем адаптер JTAG: USB, bitbang, MPSSE или LPT. */
-    t->adapter = adapter_open_usb (need_reset);
+    t->adapter = adapter_open_usb (need_reset, disable_block);
     if (! t->adapter)
 	t->adapter = adapter_open_mpsse ();
     if (! t->adapter)

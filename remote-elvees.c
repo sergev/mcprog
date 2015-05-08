@@ -226,7 +226,7 @@ static int elvees_open(int argc,
     if (! target.device) {
         /* Если первый раз - соединяемся с адаптером.
          * Не надо давать SYSRST процессору! */
-        target.device = target_open (0);
+        target.device = target_open (0, 0);
         if (! target.device) {
             target.log(RP_VAL_LOGLEVEL_ERR,
                             "%s: failed to initialize JTAG adapter",
