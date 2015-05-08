@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.89"
+#define VERSION         "1.90"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -45,7 +45,7 @@ int memory_len;
 unsigned memory_base;
 unsigned start_addr = DEFAULT_ADDR;
 unsigned progress_count, progress_step;
-int skip_erase;
+int erase_mode = -1;
 int check_erase;
 int verify_only;
 int debug_level;
@@ -675,6 +675,9 @@ void do_program (char *filename, int store_info)
     sw_info *pinfo;
 	sw_info zero_sw_info;
     struct stat file_stat;
+    
+    if (erase_mode < 0)
+		erase_mode = 1; // default erase mode
 
     printf (_("Memory: %08X-%08X, total %d bytes\n"), memory_base,
         memory_base + memory_len, memory_len);
@@ -735,7 +738,7 @@ void do_program (char *filename, int store_info)
     if (! verify_only) {
         /* Erase flash. */
         if (! check_erase || ! check_clean (target, memory_base)) {
-	    if (!skip_erase)
+	    if (erase_mode != 0)
 	      target_erase (target, memory_base);
 	}
     }
@@ -1050,14 +1053,16 @@ int main (int argc, char **argv)
 #endif
     signal (SIGTERM, interrupted);
 
-    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:E",
+    while ((ch = getopt_long (argc, argv, "vDhriwb:sn:cg:CVWe:",
       long_options, 0)) != -1) {
         switch (ch) {
         case 'E':
             ++erase_only;
             continue;
         case 'e':
-            skip_erase=strtoul (optarg, 0, 0) ? 0 : 1;
+            erase_mode=strtoul (optarg, 0, 0);
+            if (erase_mode < 0 || erase_mode > 2)
+				break;
             continue;
         case 'c':
             ++check_erase;
@@ -1110,15 +1115,19 @@ usage:
         printf ("Probe:\n");
         printf ("       mcprog\n");
         printf ("\nWrite flash memory:\n");
-        printf ("       mcprog [-v] file.srec\n");
-        printf ("       mcprog [-v] file.hex\n");
-        printf ("       mcprog [-v] file.bin [address]\n");
+        printf ("       mcprog [-v][-e0,-e2] file.srec\n");
+        printf ("       mcprog [-v][-e0,-e2] file.hex\n");
+        printf ("       mcprog [-v][-e0,-e2] file.bin [address]\n");
         printf ("\nWrite static memory:\n");
         printf ("       mcprog -w [-v] [-g address] file.srec\n");
         printf ("       mcprog -w [-v] [-g address] file.hex\n");
         printf ("       mcprog -w [-v] [-g address] file.bin [address]\n");
         printf ("\nRead memory:\n");
         printf ("       mcprog -r file.bin address length\n");
+        printf ("\nErase flash chip:\n");
+        printf ("       mcprog -e1 [address]\n");
+        printf ("\nCheck flash is clean:\n");
+        printf ("       mcprog -c [address]\n");        
         printf ("\nArgs:\n");
         printf ("       file.srec           Code file in SREC format\n");
         printf ("       file.hex            Code file in HEX format\n");
@@ -1126,8 +1135,9 @@ usage:
         printf ("       address             Address of flash memory, default 0x%08X\n",
             DEFAULT_ADDR);
         printf ("       -c                  Check clean\n");
-        printf ("       -e erase            Erase before programming (0 - do not erase, 1 (default) - erase)\n");	
-        printf ("       -E                  Erase chip only\n");	        
+        printf ("       -e erase            Erase mode\n");
+		printf ("                           (0 - do not erase, 1 (default) - erase chip,\n");
+		printf ("                            2 - erase only place for programmed file)\n");
         printf ("       -v                  Verify only\n");
         printf ("       -w                  Memory write mode\n");
         printf ("       -r                  Read mode\n");
@@ -1153,7 +1163,7 @@ usage:
         if (info_mode) {
             memory_base = DEFAULT_ADDR;
             do_info();
-        } else if (erase_only) {
+        } else if (erase_mode == 1) {
             memory_base = DEFAULT_ADDR;
             do_erase ();
             if (check_erase) do_check_clean ();
@@ -1165,7 +1175,7 @@ usage:
         }
         break;
     case 1:
-        if (erase_only) {
+        if (erase_mode == 1) {
             memory_base = strtoul (argv[0], 0, 0);
             do_erase ();
             if (check_erase) do_check_clean ();
