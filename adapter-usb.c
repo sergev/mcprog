@@ -64,7 +64,7 @@ typedef struct {
  * Код команды имеет следующий формат:
  *                           Вид команды: 00 - обычное чтение/запись;
  *                               |   |    01 - блочная запись;
- *		                 |   |    10 - блочное чтение;
+ *                               |   |    10 - блочное чтение;
  * биты  7   6   5   4   3   2   1   0    11 - запрос idcode или конец блочной операции.
  *       |   |   |   |   |   |
  *       |   |   |   |   |   SYS_RST, 0 - активное состояние
@@ -421,6 +421,7 @@ static void usb_read_block (adapter_t *adapter,
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
+    
 #if 1
     /* Блочное чтение. */
     ptr = fill_pkt (ptr, HDR (H_32 | H_BLKRD), OnCD_OMAR, addr);
@@ -435,7 +436,7 @@ static void usb_read_block (adapter_t *adapter,
     ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | H_BLKEND), OnCD_OMDR | IRd_READ, 0);
 #endif
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-
+    
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt,
         (unsigned char*) data, 4*nwords) != 4*nwords) {
         fprintf (stderr, "Empty data reading memory, aborted.\n");
@@ -647,7 +648,7 @@ static void usb_program_block32_micron (adapter_t *adapter,
     ptr = fill_pkt (ptr, HDR (H_32 | H_BLKWR), OnCD_OMAR, block_addr);
     ptr = fill_pkt (ptr, HDR (H_32 | H_BLKEND), OnCD_OMDR, 0x00d000d0);
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-    
+
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt, (unsigned char*) &oscr, 4) != 4) {
         fprintf (stderr, "Failed to program block32.\n");
         exit (-1);

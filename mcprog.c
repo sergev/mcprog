@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.88"
+#define VERSION         "1.89"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -691,7 +691,7 @@ void do_program (char *filename, int store_info)
         pinfo->len = memory_len;
         if (board_serial) {
 	    if (strlen (board_serial) > sizeof(pinfo->board_sn))
-		printf (_("Warning: board number is too large. Must be %d bytes at most. Will be cut\n"),
+		printf (_("Warning: board number is too large. Must be %ld bytes at most. Will be cut\n"),
 			sizeof(pinfo->board_sn));
 	    strcpy (pinfo->board_sn, board_serial);
 	}
@@ -813,6 +813,8 @@ void do_write ()
 
 void do_read (char *filename)
 {
+    unsigned mfcode, devcode, bytes, width;
+    char mfname[40], devname[40];
     FILE *fd;
     unsigned len, addr, data [BLOCKSZ/4];
     void *t0;
@@ -834,6 +836,18 @@ void do_read (char *filename)
     }
     target_stop (target);
     configure ();
+    
+    if (! target_flash_detect (target, memory_base,
+        &mfcode, &devcode, mfname, devname, &bytes, &width)) {
+        printf (_("No flash memory detected.\n"));
+        return;
+    }
+    printf (_("Flash: %s %s"), mfname, devname);
+    if (bytes % (1024*1024) == 0)
+        printf (_(", size %d Mbytes, %d bit wide\n"), bytes / 1024 / 1024, width);
+    else
+        printf (_(", size %d kbytes, %d bit wide\n"), bytes / 1024, width);
+
     for (progress_step=1; ; progress_step<<=1) {
         len = 1 + memory_len / progress_step / BLOCKSZ;
         if (len < 64)
