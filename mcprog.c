@@ -739,9 +739,11 @@ void do_program (char *filename, int store_info)
     if (! verify_only) {
         /* Erase flash. */
         if (! check_erase || ! check_clean (target, memory_base)) {
-        if (erase_mode != 0)
-          target_erase (target, memory_base);
-    }
+            if (erase_mode == 1)
+                target_erase (target, memory_base);
+            else if (erase_mode == 2)
+                target_erase_area (target, memory_base, memory_len);
+        }
     }
     for (progress_step=1; ; progress_step<<=1) {
         len = 1 + memory_len / progress_step / BLOCKSZ;
@@ -1119,9 +1121,9 @@ usage:
         printf ("Probe:\n");
         printf ("       mcprog\n");
         printf ("\nWrite flash memory:\n");
-        printf ("       mcprog [-v][-e0,-e2] file.srec\n");
-        printf ("       mcprog [-v][-e0,-e2] file.hex\n");
-        printf ("       mcprog [-v][-e0,-e2] file.bin [address]\n");
+        printf ("       mcprog [-v][-e0,-e1,-e2] file.srec\n");
+        printf ("       mcprog [-v][-e0,-e1,-e2] file.hex\n");
+        printf ("       mcprog [-v][-e0,-e1,-e2] file.bin [address]\n");
         printf ("\nWrite static memory:\n");
         printf ("       mcprog -w [-v] [-g address] file.srec\n");
         printf ("       mcprog -w [-v] [-g address] file.hex\n");
@@ -1130,6 +1132,8 @@ usage:
         printf ("       mcprog -r file.bin address length\n");
         printf ("\nErase flash chip:\n");
         printf ("       mcprog -e1 [address]\n");
+        printf ("\nErase sector:\n");
+        printf ("       mcprog -e2 address\n");
         printf ("\nCheck flash is clean:\n");
         printf ("       mcprog -c [address]\n");
         printf ("\nArgs:\n");

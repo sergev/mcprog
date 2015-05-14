@@ -35,12 +35,14 @@ struct _target_t {
     unsigned    cscon3;     /* Регистр конфигурации flash-памяти */
     unsigned    flash_width;
     unsigned    flash_bytes;
+    unsigned	sector_size;
     unsigned    flash_addr_odd;
     unsigned    flash_addr_even;
     unsigned    flash_cmd_aa;
     unsigned    flash_cmd_55;
     unsigned    flash_cmd_10;
     unsigned    flash_cmd_20;
+	unsigned    flash_cmd_30;
     unsigned    flash_cmd_80;
     unsigned    flash_cmd_90;
     unsigned    flash_cmd_a0;
@@ -99,6 +101,8 @@ struct _target_t {
 #define FLASH_CMD8_10   0x10101010
 #define FLASH_CMD16_20  0x00200020  /* Unlock bypass */
 #define FLASH_CMD8_20   0x20202020
+#define FLASH_CMD16_30	0x00300030	/* Sector erase */
+#define FLASH_CMD8_30	0x30303030
 #define FLASH_CMD16_80  0x00800080  /* Chip erase 1/2 */
 #define FLASH_CMD8_80   0x80808080
 #define FLASH_CMD16_90  0x00900090  /* Read ID */
@@ -957,6 +961,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD16_55;
             t->flash_cmd_10 = FLASH_CMD16_10;
             t->flash_cmd_20 = FLASH_CMD16_20;
+            t->flash_cmd_30 = FLASH_CMD16_30;
             t->flash_cmd_80 = FLASH_CMD16_80;
             t->flash_cmd_90 = FLASH_CMD16_90;
             t->flash_cmd_a0 = FLASH_CMD16_A0;
@@ -972,6 +977,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD16_55;
             t->flash_cmd_10 = FLASH_CMD16_10;
             t->flash_cmd_20 = FLASH_CMD16_20;
+            t->flash_cmd_30 = FLASH_CMD16_30;
             t->flash_cmd_80 = FLASH_CMD16_80;
             t->flash_cmd_90 = FLASH_CMD16_90;
             t->flash_cmd_a0 = FLASH_CMD16_A0;
@@ -987,6 +993,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD8_55;
             t->flash_cmd_10 = FLASH_CMD8_10;
             t->flash_cmd_20 = FLASH_CMD8_20;
+            t->flash_cmd_30 = FLASH_CMD8_30;
             t->flash_cmd_80 = FLASH_CMD8_80;
             t->flash_cmd_90 = FLASH_CMD8_90;
             t->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -1002,6 +1009,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD8_55;
             t->flash_cmd_10 = FLASH_CMD8_10;
             t->flash_cmd_20 = FLASH_CMD8_20;
+            t->flash_cmd_30 = FLASH_CMD8_30;
             t->flash_cmd_80 = FLASH_CMD8_80;
             t->flash_cmd_90 = FLASH_CMD8_90;
             t->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -1017,6 +1025,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD8_55;
             t->flash_cmd_10 = FLASH_CMD8_10;
             t->flash_cmd_20 = FLASH_CMD8_20;
+            t->flash_cmd_30 = FLASH_CMD8_30;
             t->flash_cmd_80 = FLASH_CMD8_80;
             t->flash_cmd_90 = FLASH_CMD8_90;
             t->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -1033,6 +1042,7 @@ int target_flash_detect (target_t *t, unsigned addr,
             t->flash_cmd_55 = FLASH_CMD8_55;
             t->flash_cmd_10 = FLASH_CMD8_10;
             t->flash_cmd_20 = FLASH_CMD8_20;
+            t->flash_cmd_30 = FLASH_CMD8_30;
             t->flash_cmd_80 = FLASH_CMD8_80;
             t->flash_cmd_90 = FLASH_CMD8_90;
             t->flash_cmd_a0 = FLASH_CMD8_A0;
@@ -1109,62 +1119,76 @@ int target_flash_detect (target_t *t, unsigned addr,
         case ID_29LV800_B:
             strcpy (chipname, "29LV800B");
             t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+            t->sector_size = 32*1024 * t->flash_width/8;
             goto success;
         case ID_29LV800_T:
             strcpy (chipname, "29LV800T");
             t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+            t->sector_size = 32*1024 * t->flash_width/8;
             goto success;
         case ID_39VF800_A:
             strcpy (chipname, "39VF800A");
             t->flash_bytes = 2*1024*1024 * t->flash_width / 32;
+            t->sector_size = 2*1024 * t->flash_width/8;
             goto success;
         case ID_39VF6401_B:
             strcpy (chipname, "39VF6401B");
             t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
+            t->sector_size = 32*1024 * t->flash_width/8;
             goto success;
         case ID_39VF6402_B:
             strcpy (chipname, "39VF6402B");
             t->flash_bytes = 16*1024*1024 * t->flash_width / 32;
+            t->sector_size = 32*1024 * t->flash_width/8;
             goto success;
         case ID_1636PP1Y:
             strcpy (chipname, "1636PP1Y");
             t->flash_bytes = 512*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             goto success;
         case ID_1636PP2Y:
             strcpy (chipname, "1636PP2Y");
             t->flash_bytes = 4*2*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             goto success;
         case ID_1638PP1:
             strcpy (chipname, "1638PP1");
             t->flash_bytes = 4*128*1024;
+            t->sector_size = 256 * t->flash_width/8;
             goto success;
         case (unsigned char) ID_1636PP2Y:
             if (t->flash_width != 8)
                 break;
             strcpy (chipname, "1636PP2Y");
             t->flash_bytes = 2*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             goto success;
         case ID_S29AL032D:
             strcpy (chipname, "S29AL032D");
             t->flash_bytes = 4*1024*1024;
+            t->sector_size = 32*1024 * t->flash_width/8;
             goto success;
         case ID_S29GL256P:
             strcpy (chipname, "S29GL256P");
             t->flash_bytes = 64*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             goto success;
         case ID_MT28F320:
             strcpy (chipname, "MT28F320");
             t->flash_bytes = 8*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
         case ID_MT28F640:
             strcpy (chipname, "MT28F640");
             t->flash_bytes = 16*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
         case ID_MT28F128:
             strcpy (chipname, "MT28F128");
             t->flash_bytes = 32*1024*1024;
+            t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
         }
@@ -1300,6 +1324,75 @@ int target_erase (target_t *t, unsigned addr)
     }
     printf (_(" done\n"));
     return 1;
+}
+
+int target_erase_sector (target_t *t, unsigned addr)
+{
+    unsigned word, base;
+
+    printf (_("Erase: %08X"), addr);
+    
+    base = compute_base (t, addr);
+	if (t->flash_width == 8) {
+		/* 8-разрядная шина. */
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
+		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_byte (t, addr, t->flash_cmd_30);
+
+	} else if (t->flash_delay) {
+		target_write_nwords (t, 6,
+			base + t->flash_addr_odd, t->flash_cmd_aa,
+			base + t->flash_addr_even, t->flash_cmd_55,
+			base + t->flash_addr_odd, t->flash_cmd_80,
+			base + t->flash_addr_odd, t->flash_cmd_aa,
+			base + t->flash_addr_even, t->flash_cmd_55,
+			addr, t->flash_cmd_30);
+	} else {
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
+		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+		target_write_word (t, addr, t->flash_cmd_30);
+		if (t->flash_width == 64) {
+			/* Старшая половина 64-разрядной шины. */
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
+			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+			target_write_word (t, addr + 4, t->flash_cmd_30);
+		}
+	}
+
+    for (;;) {
+        word = target_read_word (t, addr);
+        if (word == 0xffffffff)
+            break;
+        fflush (stdout);
+        mdelay (250);
+        printf (".");
+    }
+    printf (_(" done\n"));
+    return 1;
+}
+
+int target_erase_area (target_t *t, unsigned addr, unsigned len)
+{
+	unsigned cur_len = 0;
+	int ret = 1;
+	
+	while (cur_len < len) {
+		ret = target_erase_sector(t, addr + cur_len);
+		if (ret == 0) return ret;
+		
+		cur_len += t->sector_size;
+	}
+	
+	return ret;
 }
 
 int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
