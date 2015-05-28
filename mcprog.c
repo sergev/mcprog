@@ -652,7 +652,8 @@ static int check_clean (target_t *t, unsigned addr)
         target_read_block (t, addr + offset, sz, mem);
         for (i=0; i<sz; i++) {
             if (mem[i] != 0xffffffff) {
-                printf (_("Flash @ %08X is NOT clean!\n"), addr);
+                printf (_("\nFlash @ %08X is NOT clean!\n"), addr);
+                printf (_("Address %08X, value %08X\n"), addr+offset+i*4, mem[i]);
                 return 0;
             }
         }
@@ -1132,8 +1133,6 @@ usage:
         printf ("       mcprog -r file.bin address length\n");
         printf ("\nErase flash chip:\n");
         printf ("       mcprog -e1 [address]\n");
-        printf ("\nErase sector:\n");
-        printf ("       mcprog -e2 address\n");
         printf ("\nCheck flash is clean:\n");
         printf ("       mcprog -c [address]\n");
         printf ("\nArgs:\n");

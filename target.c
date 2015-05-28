@@ -34,6 +34,7 @@ struct _target_t {
     unsigned    is_running;
     unsigned    cscon3;     /* Регистр конфигурации flash-памяти */
     unsigned    flash_width;
+    unsigned    chip_width;
     unsigned    flash_bytes;
     unsigned	sector_size;
     unsigned    flash_addr_odd;
@@ -955,6 +956,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 0:
             /* Two 16-bit flash chips. */
             t->flash_width = 32;
+            t->chip_width = 16;
             t->flash_addr_odd = 0x5555 << 2;
             t->flash_addr_even = 0x2AAA << 2;
             t->flash_cmd_aa = FLASH_CMD16_AA;
@@ -971,6 +973,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 1:
             /* Four 16-bit flash chips. */
             t->flash_width = 64;
+            t->chip_width = 16;
             t->flash_addr_odd = 0x5555 << 3;
             t->flash_addr_even = 0x2AAA << 3;
             t->flash_cmd_aa = FLASH_CMD16_AA;
@@ -987,6 +990,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 2:
             /* Four 8-bit flash chips, SST/Milandr. */
             t->flash_width = 32;
+            t->chip_width = 8;
             t->flash_addr_odd = 0x555 << 2;
             t->flash_addr_even = 0x2AA << 2;
             t->flash_cmd_aa = FLASH_CMD8_AA;
@@ -1003,6 +1007,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 3:
             /* One 8-bit flash chip. */
             t->flash_width = 8;
+            t->chip_width = 8;
             t->flash_addr_odd = 0x555;
             t->flash_addr_even = 0x2AA;
             t->flash_cmd_aa = FLASH_CMD8_AA;
@@ -1019,6 +1024,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 4:
             /* Four 8-bit flash chips, Atmel/Angstrem. */
             t->flash_width = 32;
+            t->chip_width = 8;
             t->flash_addr_odd = 0x5555 << 2;
             t->flash_addr_even = 0x2AAA << 2;
             t->flash_cmd_aa = FLASH_CMD8_AA;
@@ -1036,6 +1042,7 @@ int target_flash_detect (target_t *t, unsigned addr,
         case 5:
             /* One 8-bit flash chip. */
             t->flash_width = 8;
+            t->chip_width = 8;
             t->flash_addr_odd = 0xAAA;
             t->flash_addr_even = 0x555;
             t->flash_cmd_aa = FLASH_CMD8_AA;
@@ -1175,19 +1182,19 @@ int target_flash_detect (target_t *t, unsigned addr,
             goto success;
         case ID_MT28F320:
             strcpy (chipname, "MT28F320");
-            t->flash_bytes = 8*1024*1024;
+            t->flash_bytes = (t->flash_width / t->chip_width) * 8*1024*1024;
             t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
         case ID_MT28F640:
             strcpy (chipname, "MT28F640");
-            t->flash_bytes = 16*1024*1024;
+            t->flash_bytes = (t->flash_width / t->chip_width) * 16*1024*1024;
             t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
         case ID_MT28F128:
             strcpy (chipname, "MT28F128");
-            t->flash_bytes = 32*1024*1024;
+            t->flash_bytes = (t->flash_width / t->chip_width) * 32*1024*1024;
             t->sector_size = 64*1024 * t->flash_width/8;
             t->micron_com_set = 1;
             goto success;
@@ -1254,30 +1261,30 @@ int target_erase (target_t *t, unsigned addr)
     base = compute_base (t, addr);
     printf (_("Erase: %08X"), base);
     if (t->micron_com_set) {
-        /* Доступно только поблочное стирание.
-         * Считаем, что размер блока в одном корпусе составляет 64Кбайт.
-         * Считаем также, что подключено 2 корпуса с 16-разрядными
-         * шинами.
-         */
-         unsigned offset = 0;
-         unsigned status;
-         unsigned timeout;
-         while (offset < t->flash_bytes) {
-            target_write_word (t, base + offset, 0x20202020);
-            target_write_word (t, base + offset, 0xd0d0d0d0);
-            timeout = 10000;
-            do {
-                status = target_read_word (t, base + offset);
-                if (timeout-- == 0) {
-                    fprintf(stderr, "Timeout while erasing block at offset 0x%08X\n", offset);
-                    return 0;
-                }
-            } while ((status & 0x00800080) != 0x00800080);
-            printf (".");
-            fflush (stdout);
-            offset += 256*1024;
-         }
-         target_write_word (t, base, 0xffffffff);
+		/* Доступно только поблочное стирание. */
+		unsigned offset = 0;
+		unsigned status;
+		unsigned status_mask = 0;
+		unsigned timeout;
+		unsigned i;
+		for (i = 0; i < t->flash_width / t->chip_width; ++i)
+			status_mask = (status_mask << t->chip_width) | 0x80;
+		while (offset < t->flash_bytes) {
+			target_write_word (t, base + offset, 0x20202020);
+			target_write_word (t, base + offset, 0xd0d0d0d0);
+			timeout = 10000;
+			do {
+				status = target_read_word (t, base + offset);
+				if (timeout-- == 0) {
+					fprintf(stderr, "Timeout while erasing block at offset 0x%08X\n", offset);
+					return 0;
+				}
+			} while (status != status_mask);
+			printf (".");
+			fflush (stdout);
+			offset += t->sector_size;
+		}
+		target_write_word (t, base, 0xffffffff);
     } else {
         if (t->flash_width == 8) {
             /* 8-разрядная шина. */
@@ -1314,6 +1321,7 @@ int target_erase (target_t *t, unsigned addr)
             }
         }
     }
+    
     for (;;) {
         word = target_read_word (t, base);
         if (word == 0xffffffff)
@@ -1330,48 +1338,77 @@ int target_erase_sector (target_t *t, unsigned addr)
 {
     unsigned word, base;
 
+    base = compute_base (t, addr);
+    
+    addr &= 0x0FFFFFFF;
+    addr |= (base & 0xF0000000);
+    
     printf (_("Erase: %08X"), addr);
     
-    base = compute_base (t, addr);
-	if (t->flash_width == 8) {
-		/* 8-разрядная шина. */
-		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
-		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
-		target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-		target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
-		target_write_byte (t, addr, t->flash_cmd_30);
+    if (t->micron_com_set) {
+		unsigned status;
+		unsigned status_mask = 0;
+		unsigned timeout;
+		unsigned i;
+		for (i = 0; i < t->flash_width / t->chip_width; ++i)
+			status_mask = (status_mask << t->chip_width) | 0x80;
 
-	} else if (t->flash_delay) {
-		target_write_nwords (t, 6,
-			base + t->flash_addr_odd, t->flash_cmd_aa,
-			base + t->flash_addr_even, t->flash_cmd_55,
-			base + t->flash_addr_odd, t->flash_cmd_80,
-			base + t->flash_addr_odd, t->flash_cmd_aa,
-			base + t->flash_addr_even, t->flash_cmd_55,
-			addr, t->flash_cmd_30);
-	} else {
-		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
-		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
-		target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
-		target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
-		target_write_word (t, addr, t->flash_cmd_30);
-		if (t->flash_width == 64) {
-			/* Старшая половина 64-разрядной шины. */
-			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
-			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
-			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
-			target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
-			target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
-			target_write_word (t, addr + 4, t->flash_cmd_30);
+		target_write_word (t, addr, 0x20202020);
+		target_write_word (t, addr, 0xd0d0d0d0);
+		timeout = 10000;
+		do {
+			status = target_read_word (t, addr);
+			if (timeout-- == 0) {
+				fprintf(stderr, "Timeout while erasing block at address 0x%08X\n", addr);
+				return 0;
+			}
+		} while (status != status_mask);
+		printf (".");
+        fflush (stdout);
+        target_write_word (t, addr, 0xffffffff);
+    } else {
+		if (t->flash_width == 8) {
+			/* 8-разрядная шина. */
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_80);
+			target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_byte (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_byte (t, addr, t->flash_cmd_30);
+		} else if (t->flash_delay) {
+			target_write_nwords (t, 6,
+				base + t->flash_addr_odd, t->flash_cmd_aa,
+				base + t->flash_addr_even, t->flash_cmd_55,
+				base + t->flash_addr_odd, t->flash_cmd_80,
+				base + t->flash_addr_odd, t->flash_cmd_aa,
+				base + t->flash_addr_even, t->flash_cmd_55,
+				addr, t->flash_cmd_30);
+		} else {
+			target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_80);
+			target_write_word (t, base + t->flash_addr_odd, t->flash_cmd_aa);
+			target_write_word (t, base + t->flash_addr_even, t->flash_cmd_55);
+			target_write_word (t, addr, t->flash_cmd_30);
+			if (t->flash_width == 64) {
+				/* Старшая половина 64-разрядной шины. */
+				target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+				target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+				target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_80);
+				target_write_word (t, base + t->flash_addr_odd + 4, t->flash_cmd_aa);
+				target_write_word (t, base + t->flash_addr_even + 4, t->flash_cmd_55);
+				target_write_word (t, addr + 4, t->flash_cmd_30);
+			}
 		}
 	}
 
     for (;;) {
         word = target_read_word (t, addr);
-        if (word == 0xffffffff)
+        if (word == 0xffffffff) {
+            target_read_word(t, MC_CSCON3); // Холостое чтение из другого адреса,
+                                            // чтобы сбросить какой-то кэш.
             break;
+        }
         fflush (stdout);
         mdelay (250);
         printf (".");
@@ -1516,19 +1553,47 @@ static void target_program_block8 (target_t *t, unsigned addr,
 {
 //fprintf (stderr, "target_program_block8 (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, t->flash_width, base);
     /* Unlock bypass. */
+    
+#if 1
     target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
         base + t->flash_addr_even, t->flash_cmd_55);
     target_write_byte (t, base + t->flash_addr_odd, t->flash_cmd_20);
     while (nwords-- > 0) {
         unsigned word = *data++;
-        target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word);
-        target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 8);
-        target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 16);
-        target_write_2bytes (t, base, t->flash_cmd_a0, addr++, word >> 24);
+        target_write_2bytes (t, addr, t->flash_cmd_a0, addr, word);
+        addr++;
+        target_write_2bytes (t, addr, t->flash_cmd_a0, addr, word >> 8);
+        addr++;
+        target_write_2bytes (t, addr, t->flash_cmd_a0, addr, word >> 16);
+        addr++;
+        target_write_2bytes (t, addr, t->flash_cmd_a0, addr, word >> 24);
+        addr++;
     }
     /* Reset unlock bypass. */
     target_write_2bytes (t, base, t->flash_cmd_90, base, 0);
-//fprintf (stderr, "    done (addr = %x)\n", addr);
+    
+#else
+
+    while (nwords-- > 0) {
+        unsigned word = *data++;
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+            base + t->flash_addr_even, t->flash_cmd_55);
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_a0, addr, word);
+        addr++;
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+            base + t->flash_addr_even, t->flash_cmd_55);
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_a0, addr, word >> 8);
+        addr++;
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+            base + t->flash_addr_even, t->flash_cmd_55);
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_a0, addr, word >> 16);
+        addr++;
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
+            base + t->flash_addr_even, t->flash_cmd_55);
+        target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_a0, addr, word >> 24);
+        addr++;
+    }
+#endif
 }
 
 static void target_program_block32 (target_t *t, unsigned addr,
@@ -1562,60 +1627,65 @@ static void target_program_block32 (target_t *t, unsigned addr,
 static void target_program_block32_micron (target_t *t, unsigned addr,
     unsigned base, unsigned nwords, unsigned *data)
 {
-    /* Считаем также, что подключено 2 корпуса с 16-разрядными шинами. */
-    unsigned block_addr = addr & 0xFFC00000;
+    unsigned sector_addr = addr & ~(t->sector_size - 1);
     unsigned status, timeout;
     int i, n;
+	unsigned status_mask = 0;
+	
+	for (i = 0; i < t->flash_width / t->chip_width; ++i)
+		status_mask = (status_mask << t->chip_width) | 0x80;
     
     while (nwords > 0) {
         timeout = 10000;
         do {
-            target_write_word (t, block_addr, 0x00e800e8);
-            status = target_read_word (t, block_addr);
+			target_write_word (t, sector_addr, 0xe8e8e8e8);
+            status = target_read_word (t, sector_addr);
             if (timeout-- == 0) {
                 fprintf(stderr, "Timeout while programming block\n");
-                target_write_word (t, block_addr, 0xffffffff);
+                target_write_word (t, sector_addr, 0xffffffff);
                 return;
             }
-        } while ((status & 0x00800080) != 0x00800080);
+        } while (status != status_mask);
+
         n = (nwords < 16) ? (nwords - 1) : (0x000F);
-        if (t->adapter->program_block32_micron) {
+
+		if (t->adapter->program_block32_micron) {
             t->adapter->program_block32_micron(t->adapter,
                 n, addr, data);
             addr += (n + 1) * 4;
             data += (n + 1);
         } else {
-            target_write_word (t, block_addr, (n << 16) | n);
+            target_write_word (t, sector_addr, (n << 16) | n);
             for (i = 0; i <= n; ++i) {
                 target_write_word (t, addr, *data++);
                 addr += 4;
             }
-            target_write_word (t, block_addr, 0x00d000d0);
+            target_write_word (t, sector_addr, 0xd0d0d0d0);
         }
         nwords -= (n + 1);
     }
     timeout = 10000;
     do {
-        status = target_read_word (t, block_addr);
+        status = target_read_word (t, sector_addr);
         if (timeout-- == 0) {
             fprintf(stderr, "Timeout while programming block\n");
-            target_write_word (t, block_addr, 0xffffffff);
+            target_write_word (t, sector_addr, 0xffffffff);
             return;
         }
-    } while ((status & 0x00800080) != 0x00800080);
+    } while (status != status_mask);
 
     timeout = 10000;
     do {
-        target_write_word (t, block_addr, 0x00700070);
-        status = target_read_word (t, block_addr);
+        target_write_word (t, sector_addr, 0x70707070);
+        status = target_read_word (t, sector_addr);
         if (timeout-- == 0) {
             fprintf(stderr, "Timeout while programming block\n");
-            target_write_word (t, block_addr, 0xffffffff);
+            target_write_word (t, sector_addr, 0xffffffff);
             return;
         }
-    } while ((status & 0x00800080) != 0x00800080);
+    } while (status != status_mask);
     
-    target_write_word (t, block_addr, 0xffffffff);
+    target_write_word (t, sector_addr, 0xffffffff);
 }
 
 static void target_program_block32_atmel (target_t *t, unsigned addr,
