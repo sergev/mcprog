@@ -38,7 +38,7 @@ int target_erase_sector (target_t *mc, unsigned addr);
 int target_erase_area (target_t *mc, unsigned addr, unsigned len);
 void target_program_block (target_t *mc, unsigned addr,
 	unsigned nwords, unsigned *data);
-int target_flash_rewrite (target_t *mc, unsigned addr, unsigned word);
+int target_flash_rewrite (target_t *mc, unsigned addr, unsigned bad, unsigned expected);
 
 void target_read_start (target_t *t);
 unsigned target_read_next (target_t *t, unsigned addr);

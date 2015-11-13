@@ -32,7 +32,7 @@
 #include "swinfo.h"
 #include "localize.h"
 
-#define VERSION         "1.90"
+#define VERSION         "1.91"
 #define BLOCKSZ         1024
 #define DEFAULT_ADDR    0xBFC00000
 
@@ -406,7 +406,7 @@ void verify_block (target_t *mc, unsigned addr, int len)
             /* Возможно, не все нули прописались в flash-память.
              * Пробуем повторить операцию. */
             if (verify_only || ! target_flash_rewrite (mc,
-                memory_base + addr + i, expected)) {
+                memory_base + addr + i, word, expected)) {
                 printf (_("\nerror at address %08X: file=%08X, mem=%08X\n"),
                     addr + i + memory_base, expected, word);
                 exit (1);
@@ -541,6 +541,16 @@ void configure_parameter (char *section, char *param, char *value)
         target_write_word (target, 0x182F4004, word);
         if (debug_level > 1)
             printf("CLK_EN=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182f4004));
+    } else if (strcasecmp (param, "dir_mfbsp1") == 0) {
+        sscanf(value,"%x",&word);
+        target_write_word (target, 0x182F9008, word);
+        if (debug_level > 1)
+            printf("DIR_MFBSP1=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182F9008));
+    } else if (strcasecmp (param, "gpio_dr_mfbsp1") == 0) {
+        sscanf(value,"%x",&word);
+        target_write_word (target, 0x182F900C, word);
+        if (debug_level > 1)
+            printf("GPIO_DR_MFBSP1=%08x (%s)(%08x)\n",word,value,target_read_word(target,0x182F900C));
     } else if (strncasecmp (param, "flash ", 6) == 0) {
         if (sscanf (value, "%i-%i", &first, &last) != 2) {
             fprintf (stderr, _("%s: incorrect value for parameter `%s'\n"),

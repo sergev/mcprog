@@ -1432,11 +1432,13 @@ int target_erase_area (target_t *t, unsigned addr, unsigned len)
 	return ret;
 }
 
-int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
+int target_flash_rewrite (target_t *t, unsigned addr, unsigned bad, unsigned expected)
 {
-    unsigned bad = 0, base;
+    unsigned base;
     unsigned char byte;
     static unsigned nb_rewrites = 0;
+    
+//fprintf (stderr, "\ntarget_flash_rewrite, bad = %08x, expected = %08x, addr=%08x ", bad, expected, addr); fflush (stderr);
     
     nb_rewrites++;
     //printf("nb_rewrites = %d\n", nb_rewrites);    
@@ -1447,25 +1449,15 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     else if (addr >= 0x80000000)
         addr -= 0x80000000;
 
-    /* Повтор записи возможен, только если не прописались нули. */
-    /*
-    bad = target_read_word (t, addr);
-    if ((bad & word) != word) {
-        fprintf (stderr, _("target: cannot rewrite word at %x: good %08x bad %08x\n"),
-            addr, word, bad);
-        exit (1);
-    }
-    */
-
     switch (t->flash_width) {
     case 8:
         /* Вычисляем нужный байт. */
-        for (bad &= ~word; bad && ! (bad & 0xFF); bad >>= 8) {
+        for (bad ^= expected; bad && !(bad & 0xFF); bad >>= 8) {
             addr++;
-            word >>= 8;
-//fprintf (stderr, "\nbad = %08x, word = %08x, addr=%08x ", bad, word, addr); fflush (stderr);
+            expected >>= 8;
+//fprintf (stderr, "\nbad = %08x, expected = %08x, addr=%08x ", bad, expected, addr); fflush (stderr);
         }
-        byte = word;
+        byte = expected;
 //fprintf (stderr, "\nrewrite byte %02x at %08x ", byte, addr); fflush (stderr);
 
         target_write_2bytes (t,
@@ -1481,12 +1473,12 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned word)
     case 32:
         if (t->flash_delay)
             return 0;
-//fprintf (stderr, _("\nrewrite word %08x at %08x (bad: %08X)"), word, addr, bad); fflush (stderr);
+//fprintf (stderr, _("\nrewrite word %08x at %08x (bad: %08X)"), expected, addr, bad); fflush (stderr);
         target_write_nwords (t, 4,
             base + t->flash_addr_odd, t->flash_cmd_aa,
             base + t->flash_addr_even, t->flash_cmd_55,
             base + t->flash_addr_odd, t->flash_cmd_a0,
-            addr, word);
+            addr, expected);
         break;
     }
     return 1;
