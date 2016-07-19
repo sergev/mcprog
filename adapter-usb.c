@@ -12,6 +12,12 @@
  * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
  * либо (по вашему желанию) любой более поздней версии. Подробности
  * смотрите в прилагаемом файле 'COPYING.txt'.
+ 
+	changes:	kshubin@elvees.com
+	19/07/2016:
+	-	add procedure bulk_read_no_exception - to read data without exit if nothing was read;
+	-	corrected usb_get_idcode procedure;
+	-	corrected usb_stop_cpu procedure.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -181,6 +187,37 @@ static unsigned bulk_read (usb_dev_handle *usbdev,
     return transferred;
 }
 
+
+/*
+ * Прочитать из USB массив данных.
+ */
+static unsigned bulk_read_no_exception (usb_dev_handle *usbdev,
+    unsigned char *rb, unsigned rlen)
+{
+    int transferred;
+
+    transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
+        (char*) rb, rlen, 1000);
+    if (transferred != rlen) {
+        fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
+            transferred, rlen, BULK_READ_ENDPOINT);
+		//	sometimes we do not need to exit if not transferred data
+        //_exit (-1);
+    }
+    if (debug_level) {
+        if (transferred) {
+            unsigned i;
+            fprintf (stderr, "Bulk read: %02x", *rb);
+            for (i=1; i<transferred; ++i)
+                fprintf (stderr, "-%02x", rb[i]);
+            fprintf (stderr, "\n");
+        } else
+            fprintf (stderr, "Bulk read: empty\n");
+    }
+    return transferred;
+}
+
+
 /*
  * Записать и прочитать из USB массив данных.
  */
@@ -230,16 +267,47 @@ static unsigned usb_get_idcode (adapter_t *adapter)
 {
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned idcode;
-    static const unsigned char pkt_idcode[8] = {
-        HDR (H_32 | H_IDCODE),
+    unsigned char rb[4];
+
+    static const unsigned char pkt_idcode1[2] = {
+        HIR(H_DEBUG),
+        0x33
+    };
+
+    static const unsigned char pkt_idcode2[8] = {
+    	HDR (H_32 | H_IDCODE),
         0x03,
     };
 
-    if (bulk_write_read (a->usbdev, pkt_idcode, 6,
-        (unsigned char*) &idcode, 4) != 4) {
-        fprintf (stderr, "Failed to get IDCODE.\n");
-        exit (-1);
-    }
+    if (debug_level)
+		fprintf(stderr, "try to get idcode\n");
+
+	rb[0]	=	0;
+	rb[1]	=	0;
+	bulk_write_read(a->usbdev, pkt_idcode1, 2, rb, 2);
+
+	if (debug_level)
+		fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+
+	rb[0]	=	0;
+	rb[1]	=	0;
+	rb[2]	=	0;
+	rb[3]	=	0;
+	bulk_write_read(a->usbdev, pkt_idcode2, 8, rb, 4);
+
+	if (debug_level)
+    	fprintf(stderr, "read: %x %x %x %x\n", rb[0], rb[1], rb[2], rb[3]);
+
+	idcode	=	rb[3];
+	idcode	<<=	8;
+	idcode	+=	rb[2];
+	idcode	<<=	8;
+	idcode	+=	rb[1];
+	idcode	<<=	8;
+	idcode	+=	rb[0];
+
+    if (debug_level)
+    	fprintf(stderr, "idcode: %x\n", idcode);
     return idcode;
 }
 
@@ -675,20 +743,45 @@ static void usb_stop_cpu (adapter_t *adapter)
         HIR (H_DEBUG|H_SYSRST),
         IR_DEBUG_REQUEST,
     };
-    static const unsigned char pkt_debug_enable[8] = {
-        HIR (H_DEBUG|H_SYSRST),
-        IR_DEBUG_ENABLE,
+
+    static const unsigned char pkt_debug_request1[8] = {
+        HIR (H_DEBUG),
+        IR_DEBUG_REQUEST
     };
 
-    /* Запрос Debug request. */
-    if (bulk_write_read (a->usbdev, pkt_debug_request, 2, rb, 2) != 2) {
-        fprintf (stderr, "Failed debug request.\n");
-        exit (-1);
-    }
+    static const unsigned char pkt_debug_enable[8] = {
+        HIR (H_DEBUG),
+        IR_DEBUG_ENABLE
+    };
 
-    /* Ждём переключения в отладочный режим. */
-    for (retry=0; ; retry++) {
-        if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
+
+    retry	=	0;
+    bulk_write(a->usbdev, pkt_debug_request, 2);
+   	rb[0]	=	0;
+   	rb[1]	=	0;
+   	bulk_read_no_exception(a->usbdev, rb, 2);
+    if (debug_level)
+    	fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+
+    mdelay (40);
+
+   	while ((rb[0] != 0x45) && (retry < 1000))	{
+   		retry++;
+
+   		rb[0]	=	0;
+   		rb[1]	=	0;
+   		bulk_write_read(a->usbdev, pkt_debug_request1, 2, rb, 2);
+   		if (debug_level)
+   			fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+   		mdelay (40);
+   	}
+   	if (debug_level)
+   		fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+
+   	for (retry=0; ; retry++) {
+   	    mdelay (40);
+
+   	    if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
             fprintf (stderr, "Failed debug enable.\n");
             exit (-1);
         }
@@ -698,6 +791,14 @@ static void usb_stop_cpu (adapter_t *adapter)
             fprintf (stderr, "No reply from debug request.\n");
             exit (-1);
         }
+    }
+
+	if (debug_level)
+		fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+
+    if (rb[0] != 0x55)	{
+        fprintf (stderr, "No reply from debug request.\n");
+        exit (-1);
     }
 }
 
