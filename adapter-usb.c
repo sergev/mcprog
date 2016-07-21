@@ -18,6 +18,8 @@
 	-	add procedure bulk_read_no_exception - to read data without exit if nothing was read;
 	-	corrected usb_get_idcode procedure;
 	-	corrected usb_stop_cpu procedure.
+	21/07/2016
+	-	remove proc bulk_read_no_exception - because one used just once and better to outline one in place of calling
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -173,36 +175,6 @@ static unsigned bulk_read (usb_dev_handle *usbdev,
         fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
             transferred, rlen, BULK_READ_ENDPOINT);
         _exit (-1);
-    }
-    if (debug_level) {
-        if (transferred) {
-            unsigned i;
-            fprintf (stderr, "Bulk read: %02x", *rb);
-            for (i=1; i<transferred; ++i)
-                fprintf (stderr, "-%02x", rb[i]);
-            fprintf (stderr, "\n");
-        } else
-            fprintf (stderr, "Bulk read: empty\n");
-    }
-    return transferred;
-}
-
-
-/*
- * Прочитать из USB массив данных.
- */
-static unsigned bulk_read_no_exception (usb_dev_handle *usbdev,
-    unsigned char *rb, unsigned rlen)
-{
-    int transferred;
-
-    transferred = usb_bulk_read (usbdev, BULK_READ_ENDPOINT,
-        (char*) rb, rlen, 1000);
-    if (transferred != rlen) {
-        fprintf (stderr, "Bulk read failed: %d/%d bytes from endpoint %#x.\n",
-            transferred, rlen, BULK_READ_ENDPOINT);
-		//	sometimes we do not need to exit if not transferred data
-        //_exit (-1);
     }
     if (debug_level) {
         if (transferred) {
@@ -738,6 +710,8 @@ static void usb_stop_cpu (adapter_t *adapter)
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned char rb[8];
     unsigned retry;
+    int transferred;
+
 
     static const unsigned char pkt_debug_request[8] = {
         HIR (H_DEBUG|H_SYSRST),
@@ -759,10 +733,18 @@ static void usb_stop_cpu (adapter_t *adapter)
     bulk_write(a->usbdev, pkt_debug_request, 2);
    	rb[0]	=	0;
    	rb[1]	=	0;
-   	bulk_read_no_exception(a->usbdev, rb, 2);
-    if (debug_level)
-    	fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
 
+    transferred = usb_bulk_read (a->usbdev, BULK_READ_ENDPOINT, (char*)rb, 2, 1000);
+    if (debug_level) {
+        if (transferred) {
+            unsigned i;
+            fprintf (stderr, "Bulk read: %02x", *rb);
+            for (i=1; i<transferred; ++i)
+                fprintf (stderr, "-%02x", rb[i]);
+            fprintf (stderr, "\n");
+        } else
+            fprintf (stderr, "Bulk read: empty\n");
+    }
     mdelay (40);
 
    	while ((rb[0] != 0x45) && (retry < 1000))	{
