@@ -12,7 +12,7 @@
  * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
  * либо (по вашему желанию) любой более поздней версии. Подробности
  * смотрите в прилагаемом файле 'COPYING.txt'.
- 
+
 	changes:	kshubin@elvees.com
 	19/07/2016:
 	-	add procedure bulk_read_no_exception - to read data without exit if nothing was read;
@@ -247,7 +247,7 @@ static unsigned usb_get_idcode (adapter_t *adapter)
     };
 
     static const unsigned char pkt_idcode2[8] = {
-    	HDR (H_32 | H_IDCODE),
+	HDR (H_32 | H_IDCODE),
         0x03,
     };
 
@@ -268,7 +268,7 @@ static unsigned usb_get_idcode (adapter_t *adapter)
 	bulk_write_read(a->usbdev, pkt_idcode2, 8, rb, 4);
 
 	if (debug_level)
-    	fprintf(stderr, "read: %x %x %x %x\n", rb[0], rb[1], rb[2], rb[3]);
+	fprintf(stderr, "read: %x %x %x %x\n", rb[0], rb[1], rb[2], rb[3]);
 
 	idcode	=	rb[3];
 	idcode	<<=	8;
@@ -279,7 +279,7 @@ static unsigned usb_get_idcode (adapter_t *adapter)
 	idcode	+=	rb[0];
 
     if (debug_level)
-    	fprintf(stderr, "idcode: %x\n", idcode);
+	fprintf(stderr, "idcode: %x\n", idcode);
     return idcode;
 }
 
@@ -462,7 +462,7 @@ static void usb_read_block (adapter_t *adapter,
     usb_adapter_t *a = (usb_adapter_t*) adapter;
     unsigned char pkt [6 + 6*nwords + 6], *ptr = pkt;
     unsigned oscr, i;
-    
+
 	if (h_rd == H_BLKRD) {
 		/* Блочное чтение. */
 		ptr = fill_pkt (ptr, HDR (H_32 | h_rd), OnCD_OMAR, addr);
@@ -477,7 +477,7 @@ static void usb_read_block (adapter_t *adapter,
 		ptr = fill_pkt (ptr, HDR (H_32 | H_TRST | h_end), OnCD_OMDR | IRd_READ, 0);
 	}
     ptr = fill_pkt (ptr, HDR (H_32), OnCD_OSCR | IRd_READ, 0);
-    
+
     if (bulk_write_read (a->usbdev, pkt, ptr - pkt,
         (unsigned char*) data, 4*nwords) != 4*nwords) {
         fprintf (stderr, "Empty data reading memory, aborted.\n");
@@ -491,7 +491,7 @@ static void usb_read_block (adapter_t *adapter,
         fprintf (stderr, "Timeout reading memory, aborted. OSCR=%#x\n", oscr);
         exit (1);
     }
-    
+
 /*
     for (i = 0; i < nwords; ++i) {
         printf("%02X ", data[i]);
@@ -731,8 +731,8 @@ static void usb_stop_cpu (adapter_t *adapter)
 
     retry	=	0;
     bulk_write(a->usbdev, pkt_debug_request, 2);
-   	rb[0]	=	0;
-   	rb[1]	=	0;
+	rb[0]	=	0;
+	rb[1]	=	0;
 
     transferred = usb_bulk_read (a->usbdev, BULK_READ_ENDPOINT, (char*)rb, 2, 1000);
     if (debug_level) {
@@ -747,23 +747,23 @@ static void usb_stop_cpu (adapter_t *adapter)
     }
     mdelay (40);
 
-   	while ((rb[0] != 0x45) && (retry < 1000))	{
-   		retry++;
+	while ((rb[0] != 0x45) && (retry < 1000))	{
+		retry++;
 
-   		rb[0]	=	0;
-   		rb[1]	=	0;
-   		bulk_write_read(a->usbdev, pkt_debug_request1, 2, rb, 2);
-   		if (debug_level)
-   			fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
-   		mdelay (40);
-   	}
-   	if (debug_level)
-   		fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+		rb[0]	=	0;
+		rb[1]	=	0;
+		bulk_write_read(a->usbdev, pkt_debug_request1, 2, rb, 2);
+		if (debug_level)
+			fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
+		mdelay (40);
+	}
+	if (debug_level)
+		fprintf(stderr, "read: %x %x\n", rb[0], rb[1]);
 
-   	for (retry=0; ; retry++) {
-   	    mdelay (40);
+	for (retry=0; ; retry++) {
+	    mdelay (40);
 
-   	    if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
+	    if (bulk_write_read (a->usbdev, pkt_debug_enable, 2, rb, 2) != 2) {
             fprintf (stderr, "Failed debug enable.\n");
             exit (-1);
         }
@@ -812,7 +812,7 @@ adapter_t *adapter_open_usb (int need_reset, int disable_block_op)
     struct usb_bus *bus;
     struct usb_device *dev;
     unsigned char rb [2];
-    
+
     if (disable_block_op) {
 		h_wr = H_SNGLWR;
 		h_rd = H_SNGLRD;

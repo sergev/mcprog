@@ -140,7 +140,7 @@ int dbg_sock_open(unsigned int *port)
 
     tmp = 1;
     setsockopt(dbg_listen_sock,
-    	       SOL_SOCKET,
+	       SOL_SOCKET,
                SO_REUSEADDR,
                (char *) &tmp,
                sizeof(tmp));
@@ -232,7 +232,7 @@ int dbg_sock_accept(void)
 
     tmp = 1;
     setsockopt(dbg_listen_sock,
-    	       SOL_SOCKET,
+	       SOL_SOCKET,
 	       SO_KEEPALIVE,
                (char *) &tmp,
 	       sizeof(tmp));

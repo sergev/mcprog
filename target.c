@@ -817,8 +817,8 @@ target_t *target_open (int need_reset, int disable_block)
         mdelay(RESET_DELAY);
         t->idcode = t->adapter->get_idcode (t->adapter);
         if (t->idcode == 0xffffffff || t->idcode == 0) {
-        	t->adapter->reset_cpu(t->adapter);
-        	continue;
+		t->adapter->reset_cpu(t->adapter);
+		continue;
         }
         break;
     };
@@ -1229,7 +1229,7 @@ success:
         break;
     case ID_MICRON:
         strcpy (mfname, "Micron");
-        break;        
+        break;
     /* Milandr & Spansion mf code =0x01 */
     case (unsigned char) ID_MILANDR:
         if (t->flash_width != 8)
@@ -1244,7 +1244,7 @@ unknown_mfr:
         sprintf (mfname, "<%08X>", *mf);
         break;
     }
-    
+
     if (t->micron_com_set)
         target_write_word (t, base, 0xFFFFFFFF);
 
@@ -1321,7 +1321,7 @@ int target_erase (target_t *t, unsigned addr)
             }
         }
     }
-    
+
     for (;;) {
         word = target_read_word (t, base);
         if (word == 0xffffffff)
@@ -1339,12 +1339,12 @@ int target_erase_sector (target_t *t, unsigned addr)
     unsigned word, base;
 
     base = compute_base (t, addr);
-    
+
     addr &= 0x0FFFFFFF;
     addr |= (base & 0xF0000000);
-    
+
     printf (_("Erase: %08X"), addr);
-    
+
     if (t->micron_com_set) {
 		unsigned status;
 		unsigned status_mask = 0;
@@ -1421,14 +1421,14 @@ int target_erase_area (target_t *t, unsigned addr, unsigned len)
 {
 	unsigned cur_len = 0;
 	int ret = 1;
-	
+
 	while (cur_len < len) {
 		ret = target_erase_sector(t, addr + cur_len);
 		if (ret == 0) return ret;
-		
+
 		cur_len += t->sector_size;
 	}
-	
+
 	return ret;
 }
 
@@ -1437,11 +1437,11 @@ int target_flash_rewrite (target_t *t, unsigned addr, unsigned bad, unsigned exp
     unsigned base;
     unsigned char byte;
     static unsigned nb_rewrites = 0;
-    
+
 //fprintf (stderr, "\ntarget_flash_rewrite, bad = %08x, expected = %08x, addr=%08x ", bad, expected, addr); fflush (stderr);
-    
+
     nb_rewrites++;
-    //printf("nb_rewrites = %d\n", nb_rewrites);    
+    //printf("nb_rewrites = %d\n", nb_rewrites);
 
     base = compute_base (t, addr);
     if (addr >= 0xA0000000)
@@ -1545,7 +1545,7 @@ static void target_program_block8 (target_t *t, unsigned addr,
 {
 //fprintf (stderr, "target_program_block8 (addr = %x, nwords = %d), flash_width = %d, base = %x\n", addr, nwords, t->flash_width, base);
     /* Unlock bypass. */
-    
+
 #if 1
     target_write_2bytes (t, base + t->flash_addr_odd, t->flash_cmd_aa,
         base + t->flash_addr_even, t->flash_cmd_55);
@@ -1563,7 +1563,7 @@ static void target_program_block8 (target_t *t, unsigned addr,
     }
     /* Reset unlock bypass. */
     target_write_2bytes (t, base, t->flash_cmd_90, base, 0);
-    
+
 #else
 
     while (nwords-- > 0) {
@@ -1623,10 +1623,10 @@ static void target_program_block32_micron (target_t *t, unsigned addr,
     unsigned status, timeout;
     int i, n;
 	unsigned status_mask = 0;
-	
+
 	for (i = 0; i < t->flash_width / t->chip_width; ++i)
 		status_mask = (status_mask << t->chip_width) | 0x80;
-    
+
     while (nwords > 0) {
         timeout = 10000;
         do {
@@ -1676,7 +1676,7 @@ static void target_program_block32_micron (target_t *t, unsigned addr,
             return;
         }
     } while (status != status_mask);
-    
+
     target_write_word (t, sector_addr, 0xffffffff);
 }
 
@@ -1973,4 +1973,3 @@ void target_set_cscon3 (target_t *t, unsigned value)
 {
     t->cscon3 = value;
 }
-

@@ -718,7 +718,7 @@ failed: usb_release_interface (a->usbdev, 0);
     /* Ровно 500 нсек между выдачами. */
     unsigned divisor = 3;
     unsigned char latency_timer = 1;
-    
+
     if (jtag_adapter_version == OLIMEX_ARM_USB_TINY) {
 #ifdef _WIN32
         divisor = 2;
@@ -731,7 +731,7 @@ failed: usb_release_interface (a->usbdev, 0);
         divisor = 1;
         latency_timer = 0;
     }
-    
+
 
     if (usb_control_msg (a->usbdev,
         USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_ENDPOINT_OUT,

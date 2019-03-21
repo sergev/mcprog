@@ -13,11 +13,11 @@
  * как она была опубликована Фондом Свободного ПО; либо версии 2 Лицензии
  * либо (по вашему желанию) любой более поздней версии. Подробности
  * смотрите в прилагаемом файле 'COPYING.txt'.
- 
+
 	changes:
-	kshubin@elvees.com 
+	kshubin@elvees.com
 		-	change version to v.1.92 19/07/2016)
-	
+
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -1243,4 +1243,3 @@ usage:
     quit ();
     return 0;
 }
-

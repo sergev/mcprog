@@ -568,8 +568,10 @@ adapter_t *adapter_open_lpt (void)
      * Yes, there are should be two setuid() calls.
      * If you don't understand why, then you don't
      * understand unix security. */
-    setuid (getuid());
-    setuid (getuid());
+    if (setuid(getuid()) < 0)
+        /*ignore*/;
+    if (setuid(getuid()) < 0)
+        /*ignore*/;
 #endif
     /*
      * Приведение порта LPT в исходное состояние.
